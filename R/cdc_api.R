@@ -186,38 +186,62 @@ fetch_drug_overdose <- function(state     = NULL,
                                  indicator = NULL,
                                  year_min  = 2015,
                                  year_max  = as.integer(format(Sys.Date(), "%Y")),
-                                 limit     = 10000) {
+                                 limit     = 50000) {
 
   where_parts <- character(0)
+
+  if (!is.null(year_min)) {
+    where_parts <- c(where_parts, paste0("year >= ", year_min))
+  }
+  if (!is.null(year_max)) {
+    where_parts <- c(where_parts, paste0("year <= ", year_max))
+  }
 
   if (!is.null(state) && state != "All" && state != "") {
     where_parts <- c(where_parts, paste0("state_name = '", state, "'"))
   }
 
-  if (!is.null(indicator) && indicator != "All" && indicator != "") {
-    where_parts <- c(where_parts,
-                     paste0("indicator = '", indicator, "'"))
+  make_request <- function(where_clause) {
+    req <- request(CDC_ENDPOINTS$drug_overdose) |>
+      req_url_query(`$limit` = limit, `$order` = "year ASC")
+
+    if (!is.null(where_clause)) {
+      req <- req |> req_url_query(`$where` = where_clause)
+    }
+
+    tryCatch(
+      req |> req_perform() |> resp_body_json(),
+      error = function(e) { message("CDC overdose API error: ", e$message); NULL }
+    )
   }
 
-  where_clause <- if (length(where_parts) > 0)
+  where_clause_base <- if (length(where_parts) > 0)
     paste(where_parts, collapse = " AND ")
   else NULL
 
-  req <- request(CDC_ENDPOINTS$drug_overdose) |>
-    req_url_query(`$limit` = limit, `$order` = "year ASC")
-
-  if (!is.null(where_clause)) {
-    req <- req |> req_url_query(`$where` = where_clause)
+  # Fast path: try exact indicator match in the API
+  resp <- NULL
+  if (!is.null(indicator) && indicator != "All" && indicator != "") {
+    where_parts_exact <- c(where_parts, paste0("indicator = '", indicator, "'"))
+    where_clause_exact <- paste(where_parts_exact, collapse = " AND ")
+    resp <- make_request(where_clause_exact)
   }
 
-  resp <- tryCatch(
-    req |> req_perform() |> resp_body_json(),
-    error = function(e) { message("CDC overdose API error: ", e$message); NULL }
-  )
+  # Fallback: fetch without indicator filter if exact match returns nothing
+  if (is.null(resp) || length(resp) == 0) {
+    resp <- make_request(where_clause_base)
+  }
 
   if (is.null(resp) || length(resp) == 0) return(tibble())
 
-  parse_drug_overdose(resp)
+  out <- parse_drug_overdose(resp)
+
+  if (!is.null(indicator) && indicator != "All" && indicator != "") {
+    out <- out |>
+      filter(stringr::str_detect(.data$indicator, stringr::fixed(indicator, ignore_case = TRUE)))
+  }
+
+  out
 }
 
 #' Parse drug overdose JSON

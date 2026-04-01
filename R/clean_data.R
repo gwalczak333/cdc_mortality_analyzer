@@ -76,9 +76,10 @@ add_overdose_date <- function(df) {
 overdose_by_year <- function(df) {
   df |>
     add_overdose_date() |>
-    filter(!is.na(data_value)) |>
+    mutate(value_use = dplyr::coalesce(data_value, predicted_value)) |>
+    filter(!is.na(value_use)) |>
     group_by(year, state_name, indicator) |>
-    summarise(total = sum(data_value, na.rm = TRUE), .groups = "drop")
+    summarise(total = sum(value_use, na.rm = TRUE), .groups = "drop")
 }
 
 #' Monthly trend line for a specific indicator
@@ -90,9 +91,10 @@ overdose_monthly_trend <- function(df, indicator_filter = NULL) {
   }
 
   out |>
-    filter(!is.na(data_value)) |>
+    mutate(value_use = dplyr::coalesce(data_value, predicted_value)) |>
+    filter(!is.na(value_use)) |>
     group_by(date, state_name) |>
-    summarise(value = sum(data_value, na.rm = TRUE), .groups = "drop") |>
+    summarise(value = sum(value_use, na.rm = TRUE), .groups = "drop") |>
     arrange(date)
 }
 
@@ -186,6 +188,83 @@ build_llm_data_summary <- function(cause, state, year_range, df, stats) {
     "Latest age-adjusted rate: {stats$latest_rate} per 100,000\n",
     "Overall trend direction: {stats$trend_dir}\n",
     "Rate trend (age-adjusted per 100k): {year_series}\n",
+    "Overall % change across period: {overall_pct_change}%"
+  )
+}
+
+# â”€â”€ Overdose summary helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#' Compute overdose headline stats
+#'
+#' @param df Tibble from fetch_drug_overdose().
+#' @return Named list of summary values.
+compute_overdose_stats <- function(df) {
+  if (nrow(df) == 0) return(list(total = 0, peak_date = NA, latest_value = NA, trend_dir = "â€”"))
+
+  trend_df <- overdose_monthly_trend(df)
+
+  if (nrow(trend_df) == 0) return(list(total = 0, peak_date = NA, latest_value = NA, trend_dir = "â€”"))
+
+  total <- trend_df |>
+    summarise(n = sum(value, na.rm = TRUE)) |>
+    pull(n)
+
+  peak_date <- trend_df |>
+    slice_max(value, n = 1) |>
+    pull(date)
+
+  latest_value <- trend_df |>
+    slice_max(date, n = 1) |>
+    pull(value)
+
+  trend_dir <- if (nrow(trend_df) >= 2) {
+    first_val <- first(trend_df$value)
+    last_val  <- last(trend_df$value)
+    diff_val  <- last_val - first_val
+    if (diff_val > 1) "â†‘ Increasing" else if (diff_val < -1) "â†“ Decreasing" else "â†’ Stable"
+  } else "â€”"
+
+  list(
+    total        = total,
+    peak_date    = peak_date,
+    latest_value = round(latest_value, 1),
+    trend_dir    = trend_dir
+  )
+}
+
+#' Format a structured data summary for overdose LLM
+#'
+#' @param state      Character.
+#' @param indicator  Character.
+#' @param year_range Integer vector of length 2.
+#' @param df         Tibble from fetch_drug_overdose().
+#' @param stats      List from compute_overdose_stats().
+#' @return Character string.
+build_overdose_llm_data_summary <- function(state, indicator, year_range, df, stats) {
+  trend_df <- overdose_monthly_trend(df, indicator_filter = indicator) |>
+    filter(state_name == !!state | state_name == "United States") |>
+    arrange(date)
+
+  months_sample <- trend_df |>
+    slice(c(1, ceiling(n()/2), n())) |>
+    mutate(label = paste0(format(date, "%b %Y"), ": ", round(value, 1)))
+
+  series <- paste(months_sample$label, collapse = " â†’ ")
+
+  overall_pct_change <- if (nrow(trend_df) >= 2) {
+    first_val <- first(trend_df$value)
+    last_val  <- last(trend_df$value)
+    round((last_val - first_val) / first_val * 100, 1)
+  } else NA
+
+  glue::glue(
+    "Indicator: {indicator}\n",
+    "Geography: {state}\n",
+    "Years analyzed: {year_range[1]}â€“{year_range[2]}\n",
+    "Total overdose deaths (period): {scales::comma(stats$total)}\n",
+    "Peak month: {format(stats$peak_date, '%b %Y')}\n",
+    "Latest monthly value: {stats$latest_value}\n",
+    "Overall trend direction: {stats$trend_dir}\n",
+    "Monthly trend sample: {series}\n",
     "Overall % change across period: {overall_pct_change}%"
   )
 }

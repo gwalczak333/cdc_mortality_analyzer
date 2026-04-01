@@ -305,19 +305,31 @@ server <- function(input, output, session) {
   })
 
   llm_text <- eventReactive(input$gen_llm_btn, {
-    req(df(), data_mode() == "causes")
+    req(df())
     shiny::validate(shiny::need(nrow(df()) > 0, "No data loaded. Fetch data first."))
 
     withProgress(message = "Generating AI interpretation...", value = 0.5, {
-      stats  <- compute_headline_stats(df(), input$metric)
-      result <- generate_summary_safe(
-        cause      = input$cause,
-        state      = input$state,
-        year_range = input$year_range,
-        df         = df(),
-        stats      = stats,
-        api_key    = Sys.getenv("GEMINI_API_KEY")
-      )
+      if (data_mode() == "causes") {
+        stats  <- compute_headline_stats(df(), input$metric)
+        result <- generate_summary_safe(
+          cause      = input$cause,
+          state      = input$state,
+          year_range = input$year_range,
+          df         = df(),
+          stats      = stats,
+          api_key    = Sys.getenv("GEMINI_API_KEY")
+        )
+      } else {
+        stats  <- compute_overdose_stats(df())
+        result <- generate_overdose_summary_safe(
+          state      = input$overdose_state,
+          indicator  = input$overdose_indicator,
+          year_range = input$overdose_year_range,
+          df         = df(),
+          stats      = stats,
+          api_key    = Sys.getenv("GEMINI_API_KEY")
+        )
+      }
       setProgress(1)
       result
     })
