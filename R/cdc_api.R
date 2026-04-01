@@ -253,7 +253,7 @@ parse_drug_overdose <- function(resp) {
       year         = as.integer(r$year %||% NA),
       month        = r$month %||% NA_character_,
       period       = r$period %||% NA_character_,
-      indicator    = r$indicator %||% NA_character_,
+      indicator    = stringr::str_trim(r$indicator %||% NA_character_),
       data_value   = suppressWarnings(as.numeric(r$data_value %||% NA)),
       predicted_value = suppressWarnings(as.numeric(r$predicted_value %||% NA))
     )
@@ -313,6 +313,34 @@ get_overdose_indicators <- function() {
     "Natural & semi-synthetic opioids (T40.2)",
     "Synthetic opioids, excl. methadone (T40.4)"
   )
+}
+
+#' Get live list of overdose indicator types from Socrata (fallback to static list)
+#'
+#' @return Character vector of indicator names.
+get_overdose_indicators_live <- function(limit = 5000) {
+  resp <- tryCatch(
+    request(CDC_ENDPOINTS$drug_overdose) |>
+      req_url_query(
+        `$select` = "distinct indicator",
+        `$order`  = "indicator ASC",
+        `$limit`  = limit
+      ) |>
+      req_perform() |>
+      resp_body_json(),
+    error = function(e) {
+      message("CDC overdose indicators API error: ", e$message)
+      return(NULL)
+    }
+  )
+
+  if (is.null(resp) || length(resp) == 0) return(get_overdose_indicators())
+
+  out <- purrr::map_chr(resp, ~ .x$indicator %||% NA_character_)
+  out <- stringr::str_trim(out)
+  out <- out[!is.na(out) & nzchar(out)]
+
+  if (length(out) == 0) get_overdose_indicators() else out
 }
 
 # ── Helper ────────────────────────────────────────────────────────────────────
