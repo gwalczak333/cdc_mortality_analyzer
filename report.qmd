@@ -1,0 +1,62 @@
+---
+title: "Pipeline Overview"
+---
+
+## Summary
+
+This project is a Shiny application that pulls live CDC mortality data, builds trend and comparison views, and generates a plain-language interpretation using a large language model. The data are fetched on demand from CDC public datasets via the Socrata API.
+
+## Data Sources
+
+- NCHS Leading Causes of Death: United States (1999–2020, all states)
+- VSRR Provisional Drug Overdose Death Counts (2015–present, monthly)
+
+## Data Ingestion
+
+- HTTP requests are made with `httr2`.
+- JSON responses are parsed with `jsonlite` and converted into tibbles.
+- No CDC token is required to access these open datasets.
+
+## Processing and Metrics
+
+Key transformations in `R/clean_data.R` include:
+
+- Yearly trend aggregation for deaths and rates
+- Percent change from a baseline year
+- Cause comparison rankings
+- State summaries for map views
+- KPI headline statistics
+- Overdose monthly and yearly summaries
+- Structured text block for LLM prompting
+
+## LLM Interpretation
+
+A structured data summary is passed into `R/llm_summary.R` which builds a domain-specific prompt for a public health interpretation. The response is displayed in the app as a 4–6 sentence summary.
+
+## Outputs
+
+The app exposes two primary views:
+
+- Mortality trends with multiple tabs for time series, geography, comparison, and raw data
+- Overdose deep dive with monthly trends and state comparisons
+
+## Project Structure
+
+```text
+new_file/
++-- README.md
++-- .env.example
++-- .gitignore
++-- _quarto.yml
++-- index.qmd
++-- report.qmd
++-- run-all.R
++-- styles.css
++-- data/
++-- R/
+    +-- app.R
+    +-- cdc_api.R
+    +-- clean_data.R
+    +-- llm_summary.R
+    +-- plots.R
+```

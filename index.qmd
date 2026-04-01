@@ -1,0 +1,18 @@
+---
+title: "CDC Mortality Trend Analyzer"
+---
+
+An interactive project for exploring U.S. mortality trends using live data from CDC public datasets. The analysis is powered by a Shiny app and a reproducible R pipeline.
+
+## What This Site Contains
+
+- A pipeline summary showing where the data comes from, how it is processed, and how outputs are produced.
+- The project structure mirrored from the original Shiny app layout.
+
+## Quick Start
+
+1. Create a `.env` file based on `.env.example`.
+2. Install required R packages listed in `README.md`.
+3. Run the app with `shiny::runApp()`.
+
+[View the pipeline report](report.qmd)
