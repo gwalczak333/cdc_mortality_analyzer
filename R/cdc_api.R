@@ -50,6 +50,20 @@ fetch_leading_causes <- function(cause     = NULL,
                                   year_min  = 2005,
                                   year_max  = 2020,
                                   limit     = 5000) {
+  normalize_cause <- function(x) {
+    if (is.null(x) || x == "" || x == "All causes") return(NULL)
+    if (x == "CLRD") return("Chronic lower respiratory diseases")
+    x
+  }
+
+  escape_soql <- function(x) {
+    if (is.null(x)) return(NULL)
+    gsub("'", "''", x, fixed = TRUE)
+  }
+
+  cause <- normalize_cause(cause)
+  cause_escaped <- escape_soql(cause)
+  state_escaped <- escape_soql(state)
 
   # Build SoQL WHERE clause
   where_parts <- c(
@@ -58,12 +72,12 @@ fetch_leading_causes <- function(cause     = NULL,
   )
 
   if (!is.null(state) && state != "All" && state != "") {
-    where_parts <- c(where_parts, paste0("state = '", state, "'"))
+    where_parts <- c(where_parts, paste0("state = '", state_escaped, "'"))
   }
 
   if (!is.null(cause) && cause != "All" && cause != "") {
     where_parts <- c(where_parts,
-                     paste0("cause_name = '", cause, "'"))
+                     paste0("cause_name = '", cause_escaped, "'"))
   }
 
   where_clause <- paste(where_parts, collapse = " AND ")
@@ -85,19 +99,76 @@ fetch_leading_causes <- function(cause     = NULL,
 
   if (is.null(resp) || length(resp) == 0) return(tibble())
 
-  parse_leading_causes(resp)
+  out <- parse_leading_causes(resp)
+
+  # Fallback: if exact cause match returns nothing, refetch without cause and filter locally
+  if (nrow(out) == 0 && !is.null(cause)) {
+    where_parts_fallback <- c(
+      paste0("year >= ", year_min),
+      paste0("year <= ", year_max)
+    )
+
+    if (!is.null(state) && state != "All" && state != "") {
+      where_parts_fallback <- c(where_parts_fallback, paste0("state = '", state_escaped, "'"))
+    }
+
+    where_clause_fallback <- paste(where_parts_fallback, collapse = " AND ")
+
+    resp_fallback <- tryCatch(
+      request(CDC_ENDPOINTS$leading_causes) |>
+        req_url_query(
+          `$where` = where_clause_fallback,
+          `$limit` = limit,
+          `$order` = "year ASC"
+        ) |>
+        req_perform() |>
+        resp_body_json(),
+      error = function(e) {
+        message("CDC API error (fallback): ", e$message)
+        return(NULL)
+      }
+    )
+
+    if (!is.null(resp_fallback) && length(resp_fallback) > 0) {
+      out <- parse_leading_causes(resp_fallback) |>
+        filter(str_detect(cause_name, fixed(cause, ignore_case = TRUE)))
+    }
+  }
+
+  out
 }
 
 #' Parse leading causes JSON to tidy tibble
 parse_leading_causes <- function(resp) {
+  clean_chr <- function(x) {
+    if (is.null(x)) return(NA_character_)
+    stringr::str_trim(as.character(x))
+  }
+
+  parse_num <- function(x) {
+    readr::parse_number(as.character(x))
+  }
+
+  first_non_null <- function(...) {
+    vals <- list(...)
+    for (v in vals) if (!is.null(v)) return(v)
+    NULL
+  }
+
   map_dfr(resp, function(r) {
+    age_rate_raw <- first_non_null(
+      r$age_adjusted_death_rate,
+      r$age_adjusted_rate,
+      r$age_adjusted_death_rate_1,
+      r$age_adjusted_death_rate_per_100000
+    )
     tibble(
       year         = as.integer(r$year %||% NA),
-      cause_name   = r$cause_name %||% NA_character_,
-      cause_icd10  = r$`113_cause_name` %||% NA_character_,
-      state        = r$state %||% NA_character_,
-      deaths       = as.numeric(r$deaths %||% NA),
-      age_adj_rate = as.numeric(r$age_adjusted_death_rate %||% NA)
+      cause_name   = clean_chr(r$cause_name %||% NA_character_),
+      cause_icd10  = clean_chr(r$`113_cause_name` %||% NA_character_),
+      state        = clean_chr(r$state %||% NA_character_),
+      deaths       = parse_num(r$deaths %||% NA),
+      age_adj_rate = parse_num(age_rate_raw %||% NA)
     )
   }) |>
     filter(!is.na(year), !is.na(deaths))
@@ -176,7 +247,7 @@ get_available_causes <- function() {
     "All causes",
     "Alzheimer's disease",
     "Cancer",
-    "CLRD",                              # Chronic lower respiratory diseases
+    "Chronic lower respiratory diseases",
     "Diabetes",
     "Heart disease",
     "Influenza and pneumonia",
@@ -222,4 +293,3 @@ get_overdose_indicators <- function() {
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 `%||%` <- function(a, b) if (!is.null(a) && length(a) > 0) a else b
-

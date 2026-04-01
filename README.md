@@ -104,19 +104,15 @@ The LLM prompt instructs the model to act as a public health epidemiologist, des
 
 ### 4. What the Output Is
 
-A hosted interactive Shiny app with two main views and 5 tabs:
+A hosted interactive Shiny app with one main view and 3 tabs:
 
 **Trends View:**
 
 | Tab | Contents |
 |---|---|
-| 📈 Trend Over Time | KPI cards + age-adjusted rate line chart with ribbon |
-| 🗺️ Geographic View | U.S. choropleth by state + state bar chart |
-| ⚖️ Cause Comparison | Top causes bar chart + % change diverging bar chart |
-| 🗃️ Data Table | Filterable/searchable raw data (DT) |
-| 🤖 AI Interpretation | Gemini-generated plain-language interpretation |
-
-**Overdose Deep Dive View:** Monthly trend line + state comparison bar chart for VSRR overdose data.
+| Trend Over Time | KPI cards + age-adjusted rate line chart with ribbon |
+| Data Table | Filterable/searchable raw data (DT) |
+| AI Interpretation | Gemini-generated plain-language interpretation |
 
 ---
 
@@ -220,7 +216,4 @@ cdc-mortality-explorer/
 ## License
 
 Course project — GLHLTH 562, Duke University.
-
-
-
 

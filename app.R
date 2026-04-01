@@ -36,7 +36,7 @@ ALL_INDICATORS <- get_overdose_indicators()
 
 # ── UI ─────────────────────────────────────────────────────────────────────────
 ui <- page_navbar(
-  title = "🏥 CDC Mortality Trend Analyzer",
+  title = "CDC Mortality Trend Analyzer",
   theme = bs_theme(
     bootswatch = "flatly",
     primary    = "#1a1a2e",
@@ -57,7 +57,6 @@ ui <- page_navbar(
         h5("Analysis Parameters", class = "fw-bold mt-1"),
         hr(class = "mt-1 mb-2"),
 
-        # Mode toggle
         radioButtons(
           "data_mode",
           label   = "Data Mode",
@@ -68,7 +67,6 @@ ui <- page_navbar(
 
         hr(class = "my-2"),
 
-        # ── Causes mode inputs ──────────────────────────────────────────────
         conditionalPanel(
           condition = "input.data_mode == 'causes'",
 
@@ -105,7 +103,6 @@ ui <- page_navbar(
           )
         ),
 
-        # ── Overdose mode inputs ────────────────────────────────────────────
         conditionalPanel(
           condition = "input.data_mode == 'overdose'",
 
@@ -138,7 +135,7 @@ ui <- page_navbar(
 
         actionButton(
           "fetch_btn",
-          label = "📡 Fetch CDC Data",
+          label = "Fetch CDC Data",
           class = "btn-primary w-100 fw-bold"
         ),
 
@@ -159,98 +156,26 @@ ui <- page_navbar(
 
         # Tab 1: Trend Over Time
         nav_panel(
-          "📈 Trend Over Time",
+          "Trend Over Time",
           br(),
           uiOutput("kpi_cards"),
           br(),
           plotlyOutput("trend_plot", height = "420px")
         ),
 
-        # Tab 2: Geographic View
-        nav_panel(
-          "🗺️ Geographic View",
-          br(),
-          plotlyOutput("map_plot", height = "480px"),
-          br(),
-          plotlyOutput("state_bar_plot", height = "360px")
-        ),
-
-        # Tab 3: Cause Comparison
-        nav_panel(
-          "⚖️ Cause Comparison",
-          br(),
-          fluidRow(
-            column(6, plotlyOutput("causes_bar_plot", height = "420px")),
-            column(6, plotlyOutput("pct_change_plot", height = "420px"))
-          )
-        ),
-
         # Tab 4: Raw Data
         nav_panel(
-          "🗃️ Data Table",
+          "Data Table",
           br(),
           DTOutput("data_table")
         ),
 
         # Tab 5: AI Interpretation
         nav_panel(
-          "🤖 AI Interpretation",
+          "AI Interpretation",
           br(),
           uiOutput("llm_panel_ui")
         )
-      )
-    )
-  ),
-
-  # ── Drug Overdose Deep Dive ────────────────────────────────────────────────
-  nav_panel(
-    "Overdose Deep Dive",
-    icon = bs_icon("activity"),
-    fluidRow(
-      column(
-        10, offset = 1,
-        br(),
-        h4("Provisional Drug Overdose Deaths", class = "fw-bold"),
-        p("Monthly provisional death counts from VSRR. Select a state and indicator in the sidebar.",
-          class = "text-muted"),
-        br(),
-        plotlyOutput("overdose_trend_plot", height = "420px"),
-        br(),
-        plotlyOutput("overdose_state_compare", height = "380px")
-      )
-    )
-  ),
-
-  # ── About ──────────────────────────────────────────────────────────────────
-  nav_panel(
-    "About",
-    icon = bs_icon("info-circle"),
-    fluidRow(
-      column(
-        8, offset = 2,
-        br(),
-        h3("About the CDC Mortality Trend Analyzer"),
-        p("This tool fetches live mortality data from the CDC's open data APIs and
-          helps users visualize, compare, and interpret U.S. death trends across
-          causes, geographies, and time periods."),
-        h5("Data Sources"),
-        tags$ul(
-          tags$li(a("NCHS Leading Causes of Death (1999–2020)",
-                    href = "https://data.cdc.gov/NCHS/NCHS-Leading-Causes-of-Death-United-States/bi63-dtpu",
-                    target = "_blank")),
-          tags$li(a("VSRR Provisional Drug Overdose Death Counts",
-                    href = "https://data.cdc.gov/NCHS/VSRR-Provisional-Drug-Overdose-Death-Counts/xkb8-kh2a",
-                    target = "_blank"))
-        ),
-        h5("Interpretation Notes"),
-        tags$ul(
-          tags$li("Age-adjusted rates account for differences in age distribution across states and years."),
-          tags$li("2020 data may be affected by COVID-19 mortality and care disruptions."),
-          tags$li("ICD-10 coding changes in 1999 affect comparisons with earlier data."),
-          tags$li("Provisional overdose counts are subject to revision as death certificates are processed.")
-        ),
-        h5("Built With"),
-        p("R, Shiny, httr2, ggplot2, plotly, DT, bslib, Gemini API")
       )
     )
   )
@@ -261,45 +186,41 @@ server <- function(input, output, session) {
 
   # ── Fetch data on button click ───────────────────────────────────────────────
   cdc_result <- eventReactive(input$fetch_btn, {
-
     if (input$data_mode == "causes") {
-
       withProgress(message = glue("Fetching CDC data for {input$cause}..."), value = 0.3, {
-        df <- fetch_leading_causes(
+        out <- fetch_leading_causes(
           cause    = if (input$cause == "All causes") NULL else input$cause,
           state    = if (input$state == "All") NULL else input$state,
           year_min = input$year_range[1],
           year_max = input$year_range[2]
         )
         setProgress(1)
-        list(mode = "causes", data = df)
+        list(mode = "causes", data = out)
       })
-
     } else {
-
       withProgress(message = "Fetching CDC overdose data...", value = 0.3, {
-        df <- fetch_drug_overdose(
+        out <- fetch_drug_overdose(
           state     = if (input$overdose_state == "United States") NULL else input$overdose_state,
           indicator = input$overdose_indicator,
           year_min  = input$overdose_year_range[1],
           year_max  = input$overdose_year_range[2]
         )
         setProgress(1)
-        list(mode = "overdose", data = df)
+        list(mode = "overdose", data = out)
       })
     }
   })
 
-  df         <- reactive({ req(cdc_result()); cdc_result()$data })
-  data_mode  <- reactive({ req(cdc_result()); cdc_result()$mode })
+  df <- reactive({ req(cdc_result()); cdc_result()$data })
+  data_mode <- reactive({ req(cdc_result()); cdc_result()$mode })
 
   # ── Fetch status UI ──────────────────────────────────────────────────────────
   output$fetch_status_ui <- renderUI({
-    req(cdc_result())
+    req(df())
     n <- nrow(df())
     if (n == 0) {
       div(class = "alert alert-warning p-2 small",
-          "⚠️ No records returned. Try adjusting your filters.")
+          "No records returned. Try adjusting your filters.")
     } else {
       div(class = "alert alert-success p-2 small",
           bs_icon("check-circle"), " ", comma(n), " records loaded.")
@@ -341,85 +262,21 @@ server <- function(input, output, session) {
 
   # ── Trend plot ───────────────────────────────────────────────────────────────
   output$trend_plot <- renderPlotly({
-    req(df(), data_mode() == "causes")
+    req(df())
 
-    trend_df <- trend_by_year(df(), metric = input$metric) |>
-      add_pct_change() |>
-      filter(state == input$state | state == "United States")
+    if (data_mode() == "causes") {
+      trend_df <- trend_by_year(df(), metric = input$metric) |>
+        add_pct_change() |>
+        filter(state == input$state | state == "United States")
 
-    metric_label <- if (input$metric == "age_adj_rate")
-      "Age-Adjusted Rate (per 100k)" else "Raw Death Count"
+      metric_label <- if (input$metric == "age_adj_rate")
+        "Age-Adjusted Rate (per 100k)" else "Raw Death Count"
 
-    plot_trend_line(trend_df, input$cause, input$state, metric_label)
-  })
-
-  # ── Map ───────────────────────────────────────────────────────────────────────
-  output$map_plot <- renderPlotly({
-    req(df(), data_mode() == "causes")
-
-    # For map, fetch all states for the same cause + year range
-    withProgress(message = "Loading state-level data for map...", value = 0.5, {
-      all_state_df <- fetch_leading_causes(
-        cause    = if (input$cause == "All causes") NULL else input$cause,
-        year_min = input$year_range[1],
-        year_max = input$year_range[2],
-        limit    = 20000
-      )
-      setProgress(1)
-      state_df <- state_summary(all_state_df, metric = input$metric)
-      plot_state_map(state_df, input$cause)
-    })
-  })
-
-  output$state_bar_plot <- renderPlotly({
-    req(df(), data_mode() == "causes")
-    state_df <- state_summary(df(), metric = input$metric) |>
-      head(15) |>
-      rename(cause = state, value = value)
-    plot_causes_bar(state_df, year_val = NULL,
-                    metric_label = if (input$metric == "age_adj_rate")
-                      "Avg Age-Adjusted Rate" else "Total Deaths")
-  })
-
-  # ── Cause comparison ──────────────────────────────────────────────────────────
-  output$causes_bar_plot <- renderPlotly({
-    req(df(), data_mode() == "causes")
-    compare_df <- compare_causes(df(), metric = input$metric)
-    metric_label <- if (input$metric == "age_adj_rate") "Age-Adjusted Rate" else "Deaths"
-    plot_causes_bar(compare_df, metric_label = metric_label)
-  })
-
-  output$pct_change_plot <- renderPlotly({
-    req(df(), data_mode() == "causes")
-
-    pct_df <- trend_by_year(df(), input$metric) |>
-      add_pct_change() |>
-      filter(state == input$state | state == "United States") |>
-      group_by(cause_name) |>
-      slice_max(year, n = 1) |>
-      ungroup() |>
-      select(cause_name, pct_change)
-
-    plot_pct_change(pct_df)
-  })
-
-  # ── Overdose trend ────────────────────────────────────────────────────────────
-  output$overdose_trend_plot <- renderPlotly({
-    req(df(), data_mode() == "overdose")
-    trend_df <- overdose_monthly_trend(df())
-    plot_overdose_trend(trend_df, input$overdose_state)
-  })
-
-  output$overdose_state_compare <- renderPlotly({
-    req(df(), data_mode() == "overdose")
-    # Compare top states
-    year_df <- overdose_by_year(df()) |>
-      group_by(state_name) |>
-      summarise(total = sum(total, na.rm = TRUE), .groups = "drop") |>
-      arrange(desc(total)) |>
-      head(12) |>
-      rename(cause = state_name, value = total)
-    plot_causes_bar(year_df, metric_label = "Total Overdose Deaths")
+      plot_trend_line(trend_df, input$cause, input$state, metric_label)
+    } else {
+      trend_df <- overdose_monthly_trend(df(), indicator_filter = input$overdose_indicator)
+      plot_overdose_trend(trend_df, input$overdose_state)
+    }
   })
 
   # ── Data table ───────────────────────────────────────────────────────────────
@@ -437,7 +294,7 @@ server <- function(input, output, session) {
     tagList(
       div(
         class = "card p-4",
-        h5("🤖 AI-Generated Epidemiological Interpretation", class = "fw-bold"),
+        h5("AI-Generated Epidemiological Interpretation", class = "fw-bold"),
         p("After fetching data, click below to generate a plain-language summary
           of the trend for healthcare students and professionals.", class = "text-muted"),
         actionButton("gen_llm_btn", "Generate AI Interpretation",
@@ -449,7 +306,7 @@ server <- function(input, output, session) {
 
   llm_text <- eventReactive(input$gen_llm_btn, {
     req(df(), data_mode() == "causes")
-    validate(need(nrow(df()) > 0, "No data loaded. Fetch data first."))
+    shiny::validate(shiny::need(nrow(df()) > 0, "No data loaded. Fetch data first."))
 
     withProgress(message = "Generating AI interpretation...", value = 0.5, {
       stats  <- compute_headline_stats(df(), input$metric)

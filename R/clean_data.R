@@ -14,10 +14,22 @@ library(scales)
 #' @param metric Character. "deaths" or "age_adj_rate".
 #' @return Tibble: year, cause_name, state, value.
 trend_by_year <- function(df, metric = "age_adj_rate") {
+  metric_use <- metric
+  if (!metric_use %in% names(df)) metric_use <- "deaths"
+  if (!is.numeric(df[[metric_use]])) {
+    df[[metric_use]] <- readr::parse_number(as.character(df[[metric_use]]))
+  }
+  if (all(is.na(df[[metric_use]]))) {
+    metric_use <- "deaths"
+    if (!is.numeric(df[[metric_use]])) {
+      df[[metric_use]] <- readr::parse_number(as.character(df[[metric_use]]))
+    }
+  }
+
   df |>
-    filter(!is.na(.data[[metric]])) |>
+    filter(!is.na(.data[[metric_use]])) |>
     group_by(year, cause_name, state) |>
-    summarise(value = sum(.data[[metric]], na.rm = TRUE), .groups = "drop") |>
+    summarise(value = sum(.data[[metric_use]], na.rm = TRUE), .groups = "drop") |>
     arrange(year)
 }
 
@@ -34,40 +46,6 @@ add_pct_change <- function(df) {
       pct_change = round((value - baseline) / baseline * 100, 1)
     ) |>
     ungroup()
-}
-
-#' Compare multiple causes in a single year or across all years
-#'
-#' @param df         Tibble from fetch_leading_causes().
-#' @param year_val   Integer or NULL (use all years).
-#' @param metric     Character. "deaths" or "age_adj_rate".
-#' @param top_n      Integer. Keep top N causes by total deaths.
-#' @return Tibble ranked by total value.
-compare_causes <- function(df, year_val = NULL, metric = "age_adj_rate", top_n = 10) {
-
-  out <- df
-  if (!is.null(year_val)) out <- filter(out, year == year_val)
-
-  out |>
-    filter(!is.na(.data[[metric]])) |>
-    group_by(cause_name) |>
-    summarise(total = sum(.data[[metric]], na.rm = TRUE), .groups = "drop") |>
-    arrange(desc(total)) |>
-    head(top_n) |>
-    rename(cause = cause_name, value = total)
-}
-
-#' State-level summary for a given cause + year range
-#'
-#' @param df       Tibble from fetch_leading_causes().
-#' @param metric   Character.
-#' @return Tibble: state, value — suitable for choropleth.
-state_summary <- function(df, metric = "age_adj_rate") {
-  df |>
-    filter(!is.na(.data[[metric]]), state != "United States") |>
-    group_by(state) |>
-    summarise(value = mean(.data[[metric]], na.rm = TRUE), .groups = "drop") |>
-    arrange(desc(value))
 }
 
 # ── Drug overdose: parse month/period into date ───────────────────────────────
@@ -127,6 +105,10 @@ overdose_monthly_trend <- function(df, indicator_filter = NULL) {
 compute_headline_stats <- function(df, metric = "age_adj_rate") {
   if (nrow(df) == 0) return(list(total_deaths = 0, peak_year = NA,
                                   latest_rate = NA, trend_dir = "—"))
+  if (!metric %in% names(df)) metric <- "deaths"
+  if (!is.numeric(df[[metric]])) {
+    df[[metric]] <- readr::parse_number(as.character(df[[metric]]))
+  }
 
   total_deaths <- df |>
     filter(!is.na(deaths)) |>
@@ -207,4 +189,3 @@ build_llm_data_summary <- function(cause, state, year_range, df, stats) {
     "Overall % change across period: {overall_pct_change}%"
   )
 }
-

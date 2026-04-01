@@ -78,10 +78,20 @@ get_llm_summary <- function(data_summary,
     return("Could not reach AI service. Check your API key and internet connection.")
   }
 
-  tryCatch(
-    resp$candidates[[1]]$content$parts[[1]]$text,
-    error = function(e) "Unexpected response format from AI service."
-  )
+  text_out <- tryCatch({
+    parts <- resp$candidates[[1]]$content$parts
+    if (is.null(parts)) return(NULL)
+    text_vec <- vapply(parts, function(p) {
+      if (!is.null(p$text)) as.character(p$text) else ""
+    }, character(1))
+    paste0(text_vec, collapse = "")
+  }, error = function(e) NULL)
+
+  if (is.null(text_out) || length(text_out) == 0 || is.na(text_out)) {
+    return("Unexpected response format from AI service.")
+  }
+
+  as.character(text_out)
 }
 
 # Shiny-safe wrapper
@@ -92,4 +102,3 @@ generate_summary_safe <- function(cause, state, year_range, df, stats, api_key) 
   data_summary <- build_llm_data_summary(cause, state, year_range, df, stats)
   get_llm_summary(data_summary, cause, state, api_key = api_key)
 }
-
