@@ -60,29 +60,37 @@ plot_trend_line <- function(trend_df, cause, state, metric_label = "Age-Adjusted
   ggplotly(p, tooltip = "text")
 }
 
-# ── Drug overdose trend ───────────────────────────────────────────────────────
-#' Monthly overdose death trend line
-#'
-#' @param overdose_df  Tibble from overdose_monthly_trend().
-#' @param state_name   Character. For title.
-#' @return plotly object.
-plot_overdose_trend <- function(overdose_df, state_name = "United States") {
+plot_trend_with_cdi <- function(trend_df,
+                                cdi_df,
+                                cause,
+                                state,
+                                metric_label = "Age-Adjusted Rate (per 100k)",
+                                cdi_label = "Chronic Indicator") {
 
-  if (nrow(overdose_df) == 0) return(plotly_empty("No overdose data available"))
+  if (nrow(trend_df) == 0) return(plotly_empty("No trend data available"))
 
-  p <- overdose_df |>
-    filter(state_name == !!state_name | state_name == "United States") |>
-    ggplot(aes(x = date, y = value,
-               text = paste0(format(date, "%b %Y"), ": ", comma(round(value))))) +
-    geom_line(color = "#E63946", linewidth = 1.2) +
-    geom_area(fill = "#E63946", alpha = 0.1) +
-    scale_x_date(date_labels = "%Y", date_breaks = "1 year") +
+  trend_plot_df <- trend_df |>
+    mutate(series = "Mortality", unit = metric_label)
+
+  cdi_plot_df <- cdi_df |>
+    mutate(series = "Chronic Indicator", unit = cdi_label) |>
+    rename(value = cdi_value)
+
+  plot_df <- bind_rows(trend_plot_df, cdi_plot_df)
+
+  p <- plot_df |>
+    ggplot(aes(x = year, y = value,
+               text = paste0(year, "\n", series, ": ", round(value, 1), "\n", unit))) +
+    geom_line(color = "#457B9D", linewidth = 1.2) +
+    geom_point(color = "#457B9D", size = 2.2, fill = "white", shape = 21, stroke = 1.2) +
+    facet_wrap(~series, ncol = 1, scales = "free_y") +
+    scale_x_continuous(breaks = pretty_breaks(n = 8)) +
     scale_y_continuous(labels = comma) +
     labs(
-      title    = paste0("Drug Overdose Deaths — ", state_name),
-      subtitle = "12-month provisional counts",
+      title    = paste0(str_to_title(cause), " — ", state),
+      subtitle = "Mortality and Chronic Disease Indicator Trends",
       x        = NULL,
-      y        = "Deaths"
+      y        = NULL
     ) +
     theme_mortality()
 

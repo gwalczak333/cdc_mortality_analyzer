@@ -8,7 +8,6 @@
 #   3. CDC FluView / MMWR supplementary data
 #
 # Primary dataset used:
-#   "VSRR Provisional Drug Overdose Death Counts" — data.cdc.gov
 #   "NCHS - Leading Causes of Death: United States" — data.cdc.gov
 #   "Underlying Cause of Death" wonder.cdc.gov (via pre-built query API)
 
@@ -25,8 +24,8 @@ CDC_ENDPOINTS <- list(
   # NCHS Leading Causes of Death: United States (1999–2020)
   leading_causes = "https://data.cdc.gov/resource/bi63-dtpu.json",
 
-  # VSRR Provisional Drug Overdose Death Counts (monthly, by state)
-  drug_overdose  = "https://data.cdc.gov/resource/xkb8-kh2a.json",
+  # U.S. Chronic Disease Indicators
+  chronic_indicators = "https://data.cdc.gov/resource/hksd-2xuw.json",
 
   # NCHS Death Rates and Life Expectancy at Birth
   life_expectancy = "https://data.cdc.gov/resource/w9j2-ggv5.json",
@@ -174,91 +173,107 @@ parse_leading_causes <- function(resp) {
     filter(!is.na(year), !is.na(deaths))
 }
 
-# ── Drug Overdose Deaths ──────────────────────────────────────────────────────
-#' Fetch VSRR Provisional Drug Overdose Death Counts
+# ── Chronic Disease Indicators ───────────────────────────────────────────────
+#' Fetch U.S. Chronic Disease Indicators (CDI)
 #'
-#' @param state      Character or "US" for national.
-#' @param indicator  Character. Drug type filter (e.g., "Opioids", "Cocaine").
-#' @param year_min   Integer.
-#' @param year_max   Integer.
-#' @return Tibble of overdose death counts by month/state.
-fetch_drug_overdose <- function(state     = NULL,
-                                 indicator = NULL,
-                                 year_min  = 2015,
-                                 year_max  = as.integer(format(Sys.Date(), "%Y")),
-                                 limit     = 50000) {
+#' @param state     Character or NULL. State name or "United States".
+#' @param question  Character or NULL. CDI indicator question.
+#' @param year_min  Integer.
+#' @param year_max  Integer.
+#' @param limit     Integer. Max records (Socrata max = 50000).
+#' @return Tibble of CDI records.
+fetch_chronic_indicators <- function(state     = NULL,
+                                     question  = NULL,
+                                     year_min  = 2005,
+                                     year_max  = as.integer(format(Sys.Date(), "%Y")),
+                                     limit     = 50000) {
+
+  escape_soql <- function(x) {
+    if (is.null(x)) return(NULL)
+    stringr::str_replace_all(x, "'", "''")
+  }
 
   where_parts <- character(0)
-
-  if (!is.null(year_min)) {
-    where_parts <- c(where_parts, paste0("year >= ", year_min))
-  }
-  if (!is.null(year_max)) {
-    where_parts <- c(where_parts, paste0("year <= ", year_max))
-  }
+  if (!is.null(year_min)) where_parts <- c(where_parts, paste0("yearend >= ", year_min))
+  if (!is.null(year_max)) where_parts <- c(where_parts, paste0("yearend <= ", year_max))
 
   if (!is.null(state) && state != "All" && state != "") {
-    where_parts <- c(where_parts, paste0("state_name = '", state, "'"))
+    state_escaped <- escape_soql(state)
+    where_parts <- c(where_parts, paste0("locationdesc = '", state_escaped, "'"))
   }
 
-  make_request <- function(where_clause) {
-    req <- request(CDC_ENDPOINTS$drug_overdose) |>
-      req_url_query(`$limit` = limit, `$order` = "year ASC")
+  if (!is.null(question) && question != "All" && question != "") {
+    q_escaped <- escape_soql(question)
+    where_parts <- c(where_parts, paste0("question = '", q_escaped, "'"))
+  }
 
-    if (!is.null(where_clause)) {
-      req <- req |> req_url_query(`$where` = where_clause)
-    }
+  where_clause <- if (length(where_parts) > 0) paste(where_parts, collapse = " AND ") else NULL
 
-    tryCatch(
-      req |> req_perform() |> resp_body_json(),
-      error = function(e) { message("CDC overdose API error: ", e$message); NULL }
+  req <- request(CDC_ENDPOINTS$chronic_indicators) |>
+    req_url_query(
+      `$select` = paste(
+        c("yearend", "locationdesc", "topic", "question", "datavalue",
+          "datavaluetype", "datavalueunit", "stratificationcategory1",
+          "stratification1"),
+        collapse = ","
+      ),
+      `$limit` = limit,
+      `$order` = "yearend ASC"
     )
+
+  if (!is.null(where_clause)) {
+    req <- req |> req_url_query(`$where` = where_clause)
   }
 
-  where_clause_base <- if (length(where_parts) > 0)
-    paste(where_parts, collapse = " AND ")
-  else NULL
-
-  # Fast path: try exact indicator match in the API
-  resp <- NULL
-  if (!is.null(indicator) && indicator != "All" && indicator != "") {
-    where_parts_exact <- c(where_parts, paste0("indicator = '", indicator, "'"))
-    where_clause_exact <- paste(where_parts_exact, collapse = " AND ")
-    resp <- make_request(where_clause_exact)
-  }
-
-  # Fallback: fetch without indicator filter if exact match returns nothing
-  if (is.null(resp) || length(resp) == 0) {
-    resp <- make_request(where_clause_base)
-  }
+  resp <- tryCatch(
+    req |> req_perform() |> resp_body_json(),
+    error = function(e) {
+      message("CDC CDI API error: ", e$message)
+      return(NULL)
+    }
+  )
 
   if (is.null(resp) || length(resp) == 0) return(tibble())
 
-  out <- parse_drug_overdose(resp)
-
-  if (!is.null(indicator) && indicator != "All" && indicator != "") {
-    out <- out |>
-      filter(stringr::str_detect(.data$indicator, stringr::fixed(indicator, ignore_case = TRUE)))
-  }
-
-  out
+  parse_chronic_indicators(resp)
 }
 
-#' Parse drug overdose JSON
-parse_drug_overdose <- function(resp) {
+#' Parse CDI JSON
+parse_chronic_indicators <- function(resp) {
   map_dfr(resp, function(r) {
     tibble(
-      state_name   = r$state_name %||% NA_character_,
-      state_abbr   = r$state %||% NA_character_,
-      year         = as.integer(r$year %||% NA),
-      month        = r$month %||% NA_character_,
-      period       = r$period %||% NA_character_,
-      indicator    = stringr::str_trim(r$indicator %||% NA_character_),
-      data_value   = suppressWarnings(as.numeric(r$data_value %||% NA)),
-      predicted_value = suppressWarnings(as.numeric(r$predicted_value %||% NA))
+      year       = as.integer(r$yearend %||% NA),
+      state      = stringr::str_trim(r$locationdesc %||% NA_character_),
+      topic      = stringr::str_trim(r$topic %||% NA_character_),
+      question   = stringr::str_trim(r$question %||% NA_character_),
+      datavalue  = suppressWarnings(as.numeric(r$datavalue %||% NA)),
+      datavaluetype = stringr::str_trim(r$datavaluetype %||% NA_character_),
+      datavalueunit = stringr::str_trim(r$datavalueunit %||% NA_character_),
+      stratificationcategory1 = stringr::str_trim(r$stratificationcategory1 %||% NA_character_),
+      stratification1 = stringr::str_trim(r$stratification1 %||% NA_character_)
     )
   }) |>
-    filter(!is.na(year))
+    filter(!is.na(year), !is.na(state))
+}
+
+#' Get list of CDI indicator questions (live)
+get_cdi_questions_live <- function(limit = 50000) {
+  resp <- tryCatch(
+    request(CDC_ENDPOINTS$chronic_indicators) |>
+      req_url_query(`$select` = "distinct question", `$limit` = limit, `$order` = "question ASC") |>
+      req_perform() |>
+      resp_body_json(),
+    error = function(e) {
+      message("CDC CDI questions API error: ", e$message)
+      return(NULL)
+    }
+  )
+
+  if (is.null(resp) || length(resp) == 0) return(character())
+
+  out <- purrr::map_chr(resp, ~ .x$question %||% NA_character_)
+  out <- out[!is.na(out)]
+  unique(out)
 }
 
 # ── Available causes list (for dropdown) ─────────────────────────────────────
@@ -298,49 +313,6 @@ get_available_states <- function() {
     "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming",
     "District of Columbia"
   )
-}
-
-#' Get list of drug overdose indicator types
-get_overdose_indicators <- function() {
-  c(
-    "Number of Drug Overdose Deaths",
-    "Number of Deaths with Underlying Cause of Death Coded as Drug Poisoning (T36-T50.9)",
-    "Opioids (T40.0-T40.4,T40.6)",
-    "Heroin (T40.1)",
-    "Cocaine (T40.5)",
-    "Psychostimulants with abuse potential (T43.6)",
-    "Methadone (T40.3)",
-    "Natural & semi-synthetic opioids (T40.2)",
-    "Synthetic opioids, excl. methadone (T40.4)"
-  )
-}
-
-#' Get live list of overdose indicator types from Socrata (fallback to static list)
-#'
-#' @return Character vector of indicator names.
-get_overdose_indicators_live <- function(limit = 5000) {
-  resp <- tryCatch(
-    request(CDC_ENDPOINTS$drug_overdose) |>
-      req_url_query(
-        `$select` = "distinct indicator",
-        `$order`  = "indicator ASC",
-        `$limit`  = limit
-      ) |>
-      req_perform() |>
-      resp_body_json(),
-    error = function(e) {
-      message("CDC overdose indicators API error: ", e$message)
-      return(NULL)
-    }
-  )
-
-  if (is.null(resp) || length(resp) == 0) return(get_overdose_indicators())
-
-  out <- purrr::map_chr(resp, ~ .x$indicator %||% NA_character_)
-  out <- stringr::str_trim(out)
-  out <- out[!is.na(out) & nzchar(out)]
-
-  if (length(out) == 0) get_overdose_indicators() else out
 }
 
 # ── Helper ────────────────────────────────────────────────────────────────────

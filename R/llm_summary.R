@@ -169,19 +169,14 @@ get_llm_summary <- function(data_summary,
 }
 
 # Shiny-safe wrapper
-generate_summary_safe <- function(cause, state, year_range, df, stats, api_key) {
+generate_summary_safe <- function(cause, state, year_range, df, stats,
+                                  cdi_df = NULL, cdi_label = NULL, api_key) {
 
   if (nrow(df) == 0) return("No data available to summarize.")
 
-  data_summary <- build_llm_data_summary(cause, state, year_range, df, stats)
+  data_summary <- build_llm_data_summary(
+    cause, state, year_range, df, stats,
+    cdi_df = cdi_df, cdi_label = cdi_label
+  )
   get_llm_summary(data_summary, cause, state, api_key = api_key)
-}
-
-# Overdose summary wrapper
-generate_overdose_summary_safe <- function(state, indicator, year_range, df, stats, api_key) {
-
-  if (nrow(df) == 0) return("No data available to summarize.")
-
-  data_summary <- build_overdose_llm_data_summary(state, indicator, year_range, df, stats)
-  get_llm_summary(data_summary, indicator, state, api_key = api_key)
 }

@@ -32,7 +32,10 @@ if (file.exists(".env")) dotenv::load_dot_env(".env")
 # ── Static choices ─────────────────────────────────────────────────────────────
 ALL_CAUSES <- get_available_causes()
 ALL_STATES <- get_available_states()
-ALL_INDICATORS <- get_overdose_indicators()
+ALL_CDI_QUESTIONS <- get_cdi_questions_live()
+if (length(ALL_CDI_QUESTIONS) == 0) {
+  ALL_CDI_QUESTIONS <- c("All indicators")
+}
 
 # ── UI ─────────────────────────────────────────────────────────────────────────
 ui <- page_navbar(
@@ -57,78 +60,43 @@ ui <- page_navbar(
         h5("Analysis Parameters", class = "fw-bold mt-1"),
         hr(class = "mt-1 mb-2"),
 
-        radioButtons(
-          "data_mode",
-          label   = "Data Mode",
-          choices = c("Leading Causes of Death" = "causes",
-                      "Drug Overdose Deaths"    = "overdose"),
-          selected = "causes"
+        selectInput(
+          "cause",
+          label    = "Cause of Death",
+          choices  = ALL_CAUSES,
+          selected = "Heart disease"
         ),
 
-        hr(class = "my-2"),
-
-        conditionalPanel(
-          condition = "input.data_mode == 'causes'",
-
-          selectInput(
-            "cause",
-            label    = "Cause of Death",
-            choices  = ALL_CAUSES,
-            selected = "Heart disease"
-          ),
-
-          selectInput(
-            "state",
-            label    = "State / Geography",
-            choices  = ALL_STATES,
-            selected = "United States"
-          ),
-
-          sliderInput(
-            "year_range",
-            label = "Year Range",
-            min   = 1999,
-            max   = 2020,
-            value = c(2005, 2020),
-            step  = 1,
-            sep   = ""
-          ),
-
-          selectInput(
-            "metric",
-            label    = "Metric",
-            choices  = c("Age-Adjusted Rate (per 100k)" = "age_adj_rate",
-                          "Raw Death Count"             = "deaths"),
-            selected = "age_adj_rate"
-          )
+        selectInput(
+          "state",
+          label    = "State / Geography",
+          choices  = ALL_STATES,
+          selected = "United States"
         ),
 
-        conditionalPanel(
-          condition = "input.data_mode == 'overdose'",
+        sliderInput(
+          "year_range",
+          label = "Year Range",
+          min   = 1999,
+          max   = 2020,
+          value = c(2005, 2020),
+          step  = 1,
+          sep   = ""
+        ),
 
-          selectInput(
-            "overdose_state",
-            label    = "State",
-            choices  = c("United States", ALL_STATES[-1]),
-            selected = "United States"
-          ),
+        selectInput(
+          "metric",
+          label    = "Mortality Metric",
+          choices  = c("Age-Adjusted Rate (per 100k)" = "age_adj_rate",
+                        "Raw Death Count"             = "deaths"),
+          selected = "age_adj_rate"
+        ),
 
-          selectInput(
-            "overdose_indicator",
-            label    = "Drug / Indicator",
-            choices  = ALL_INDICATORS,
-            selected = ALL_INDICATORS[1]
-          ),
-
-          sliderInput(
-            "overdose_year_range",
-            label = "Year Range",
-            min   = 2015,
-            max   = as.integer(format(Sys.Date(), "%Y")),
-            value = c(2018, as.integer(format(Sys.Date(), "%Y"))),
-            step  = 1,
-            sep   = ""
-          )
+        selectInput(
+          "cdi_question",
+          label    = "Chronic Indicator",
+          choices  = ALL_CDI_QUESTIONS,
+          selected = ALL_CDI_QUESTIONS[1]
         ),
 
         hr(class = "my-2"),
@@ -145,7 +113,7 @@ ui <- page_navbar(
         hr(class = "my-2"),
         p("Source: ",
           a("data.cdc.gov", href = "https://data.cdc.gov", target = "_blank"),
-          " (NCHS/VSRR)",
+          " (NCHS Leading Causes + U.S. Chronic Disease Indicators)",
           class = "text-muted small mb-0"),
         p("Age-adjusted rates per 100,000 U.S. standard population.",
           class = "text-muted small")
@@ -186,51 +154,81 @@ server <- function(input, output, session) {
 
   # ── Fetch data on button click ───────────────────────────────────────────────
   cdc_result <- eventReactive(input$fetch_btn, {
-    if (input$data_mode == "causes") {
-      withProgress(message = glue("Fetching CDC data for {input$cause}..."), value = 0.3, {
-        out <- fetch_leading_causes(
-          cause    = if (input$cause == "All causes") NULL else input$cause,
-          state    = if (input$state == "All") NULL else input$state,
-          year_min = input$year_range[1],
-          year_max = input$year_range[2]
-        )
-        setProgress(1)
-        list(mode = "causes", data = out)
-      })
-    } else {
-      withProgress(message = "Fetching CDC overdose data...", value = 0.3, {
-        out <- fetch_drug_overdose(
-          state     = if (input$overdose_state == "United States") NULL else input$overdose_state,
-          indicator = input$overdose_indicator,
-          year_min  = input$overdose_year_range[1],
-          year_max  = input$overdose_year_range[2]
-        )
-        setProgress(1)
-        list(mode = "overdose", data = out)
-      })
-    }
+    withProgress(message = glue("Fetching CDC data for {input$cause}..."), value = 0.2, {
+      leading <- fetch_leading_causes(
+        cause    = if (input$cause == "All causes") NULL else input$cause,
+        state    = if (input$state == "All") NULL else input$state,
+        year_min = input$year_range[1],
+        year_max = input$year_range[2]
+      )
+
+      setProgress(0.6)
+
+      cdi_raw <- fetch_chronic_indicators(
+        state    = if (input$state == "All") NULL else input$state,
+        question = if (input$cdi_question == "All indicators") NULL else input$cdi_question,
+        year_min = input$year_range[1],
+        year_max = input$year_range[2]
+      )
+
+      if ("Overall" %in% cdi_raw$stratification1) {
+        cdi_raw <- cdi_raw |>
+          dplyr::filter(stratification1 == "Overall")
+      } else if ("Overall" %in% cdi_raw$stratificationcategory1) {
+        cdi_raw <- cdi_raw |>
+          dplyr::filter(stratificationcategory1 == "Overall")
+      }
+
+      cdi_year <- summarize_cdi_by_year(cdi_raw)
+
+      merged <- leading |>
+        left_join(cdi_year, by = c("year", "state"))
+
+      setProgress(1)
+      list(leading = leading, cdi = cdi_year, merged = merged)
+    })
   })
 
-  df <- reactive({ req(cdc_result()); cdc_result()$data })
-  data_mode <- reactive({ req(cdc_result()); cdc_result()$mode })
+  lc_df <- reactive({ req(cdc_result()); cdc_result()$leading })
+  cdi_df <- reactive({ req(cdc_result()); cdc_result()$cdi })
+  merged_df <- reactive({ req(cdc_result()); cdc_result()$merged })
+
+  # Keep metric choices in sync with available columns
+  observeEvent(cdc_result(), {
+    has_age_rate <- "age_adj_rate" %in% names(lc_df()) && any(!is.na(lc_df()$age_adj_rate))
+    metric_choices <- if (has_age_rate) {
+      c("Age-Adjusted Rate (per 100k)" = "age_adj_rate",
+        "Raw Death Count" = "deaths")
+    } else {
+      c("Raw Death Count" = "deaths")
+    }
+    updateSelectInput(session, "metric", choices = metric_choices,
+                      selected = if (has_age_rate) "age_adj_rate" else "deaths")
+  }, ignoreInit = TRUE)
 
   # ── Fetch status UI ──────────────────────────────────────────────────────────
   output$fetch_status_ui <- renderUI({
-    req(df())
-    n <- nrow(df())
-    if (n == 0) {
+    req(lc_df(), merged_df())
+    n_leading <- nrow(lc_df())
+    n_merged <- nrow(merged_df())
+    if (n_leading == 0) {
       div(class = "alert alert-warning p-2 small",
           "No records returned. Try adjusting your filters.")
     } else {
       div(class = "alert alert-success p-2 small",
-          bs_icon("check-circle"), " ", comma(n), " records loaded.")
+          bs_icon("check-circle"), " ",
+          comma(n_leading), " mortality records and ",
+          comma(n_merged), " merged records loaded.")
     }
   })
 
   # ── KPI Cards ────────────────────────────────────────────────────────────────
   output$kpi_cards <- renderUI({
-    req(df(), data_mode() == "causes")
-    stats <- compute_headline_stats(df(), input$metric)
+    req(lc_df())
+    stats <- compute_headline_stats(lc_df(), input$metric)
+
+    latest_label <- if (input$metric == "age_adj_rate")
+      "Latest Rate (per 100k)" else "Latest Death Count"
 
     fluidRow(
       column(3, value_box(
@@ -246,7 +244,7 @@ server <- function(input, output, session) {
         theme    = "secondary"
       )),
       column(3, value_box(
-        title    = "Latest Rate (per 100k)",
+        title    = latest_label,
         value    = stats$latest_rate %||% "—",
         showcase = bs_icon("bar-chart-fill"),
         theme    = "info"
@@ -262,27 +260,28 @@ server <- function(input, output, session) {
 
   # ── Trend plot ───────────────────────────────────────────────────────────────
   output$trend_plot <- renderPlotly({
-    req(df())
+    req(lc_df())
 
-    if (data_mode() == "causes") {
-      trend_df <- trend_by_year(df(), metric = input$metric) |>
-        add_pct_change() |>
-        filter(state == input$state | state == "United States")
+    trend_df <- trend_by_year(lc_df(), metric = input$metric) |>
+      add_pct_change() |>
+      filter(state == input$state | state == "United States")
 
-      metric_label <- if (input$metric == "age_adj_rate")
-        "Age-Adjusted Rate (per 100k)" else "Raw Death Count"
+    metric_label <- if (input$metric == "age_adj_rate")
+      "Age-Adjusted Rate (per 100k)" else "Raw Death Count"
 
-      plot_trend_line(trend_df, input$cause, input$state, metric_label)
-    } else {
-      trend_df <- overdose_monthly_trend(df(), indicator_filter = input$overdose_indicator)
-      plot_overdose_trend(trend_df, input$overdose_state)
-    }
+    cdi_label <- input$cdi_question
+    plot_trend_with_cdi(trend_df, cdi_df(), input$cause, input$state,
+                        metric_label, cdi_label)
   })
 
   # ── Data table ───────────────────────────────────────────────────────────────
   output$data_table <- renderDT({
-    req(df())
-    df()
+    req(merged_df())
+    table_df <- merged_df()
+    if (!"age_adj_rate" %in% names(table_df) || all(is.na(table_df$age_adj_rate))) {
+      table_df <- dplyr::select(table_df, -dplyr::any_of("age_adj_rate"))
+    }
+    table_df
   },
   options  = list(pageLength = 15, scrollX = TRUE),
   filter   = "top",
@@ -305,31 +304,21 @@ server <- function(input, output, session) {
   })
 
   llm_text <- eventReactive(input$gen_llm_btn, {
-    req(df())
-    shiny::validate(shiny::need(nrow(df()) > 0, "No data loaded. Fetch data first."))
+    req(lc_df())
+    shiny::validate(shiny::need(nrow(lc_df()) > 0, "No data loaded. Fetch data first."))
 
     withProgress(message = "Generating AI interpretation...", value = 0.5, {
-      if (data_mode() == "causes") {
-        stats  <- compute_headline_stats(df(), input$metric)
-        result <- generate_summary_safe(
-          cause      = input$cause,
-          state      = input$state,
-          year_range = input$year_range,
-          df         = df(),
-          stats      = stats,
-          api_key    = Sys.getenv("GEMINI_API_KEY")
-        )
-      } else {
-        stats  <- compute_overdose_stats(df())
-        result <- generate_overdose_summary_safe(
-          state      = input$overdose_state,
-          indicator  = input$overdose_indicator,
-          year_range = input$overdose_year_range,
-          df         = df(),
-          stats      = stats,
-          api_key    = Sys.getenv("GEMINI_API_KEY")
-        )
-      }
+      stats  <- compute_headline_stats(lc_df(), input$metric)
+      result <- generate_summary_safe(
+        cause      = input$cause,
+        state      = input$state,
+        year_range = input$year_range,
+        df         = lc_df(),
+        stats      = stats,
+        cdi_df     = cdi_df(),
+        cdi_label  = input$cdi_question,
+        api_key    = Sys.getenv("GEMINI_API_KEY")
+      )
       setProgress(1)
       result
     })
