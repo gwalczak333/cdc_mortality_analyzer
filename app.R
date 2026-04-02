@@ -88,7 +88,8 @@ ui <- page_navbar(
           "metric",
           label    = "Mortality Metric",
           choices  = c("Age-Adjusted Rate (per 100k)" = "age_adj_rate",
-                        "Raw Death Count"             = "deaths"),
+                        "Crude Death Rate (per 100k)"  = "rate",
+                        "Raw Death Count"              = "deaths"),
           selected = "age_adj_rate"
         ),
 
@@ -196,14 +197,19 @@ server <- function(input, output, session) {
   # Keep metric choices in sync with available columns
   observeEvent(cdc_result(), {
     has_age_rate <- "age_adj_rate" %in% names(lc_df()) && any(!is.na(lc_df()$age_adj_rate))
+    has_rate <- "rate" %in% names(lc_df()) && any(!is.na(lc_df()$rate))
     metric_choices <- if (has_age_rate) {
       c("Age-Adjusted Rate (per 100k)" = "age_adj_rate",
-        "Raw Death Count" = "deaths")
+        "Crude Death Rate (per 100k)"  = "rate",
+        "Raw Death Count"              = "deaths")
+    } else if (has_rate) {
+      c("Crude Death Rate (per 100k)"  = "rate",
+        "Raw Death Count"              = "deaths")
     } else {
       c("Raw Death Count" = "deaths")
     }
     updateSelectInput(session, "metric", choices = metric_choices,
-                      selected = if (has_age_rate) "age_adj_rate" else "deaths")
+                      selected = if (has_age_rate) "age_adj_rate" else if (has_rate) "rate" else "deaths")
   }, ignoreInit = TRUE)
 
   # ── Fetch status UI ──────────────────────────────────────────────────────────
@@ -227,8 +233,12 @@ server <- function(input, output, session) {
     req(lc_df())
     stats <- compute_headline_stats(lc_df(), input$metric)
 
-    latest_label <- if (input$metric == "age_adj_rate")
-      "Latest Rate (per 100k)" else "Latest Death Count"
+    latest_label <- switch(
+      input$metric,
+      "age_adj_rate" = "Latest Age-Adjusted Rate (per 100k)",
+      "rate"         = "Latest Crude Rate (per 100k)",
+      "Latest Death Count"
+    )
 
     fluidRow(
       column(3, value_box(
@@ -266,8 +276,12 @@ server <- function(input, output, session) {
       add_pct_change() |>
       filter(state == input$state | state == "United States")
 
-    metric_label <- if (input$metric == "age_adj_rate")
-      "Age-Adjusted Rate (per 100k)" else "Raw Death Count"
+    metric_label <- switch(
+      input$metric,
+      "age_adj_rate" = "Age-Adjusted Rate (per 100k)",
+      "rate"         = "Crude Death Rate (per 100k)",
+      "Raw Death Count"
+    )
 
     cdi_label <- input$cdi_question
     plot_trend_with_cdi(trend_df, cdi_df(), input$cause, input$state,
@@ -309,12 +323,20 @@ server <- function(input, output, session) {
 
     withProgress(message = "Generating AI interpretation...", value = 0.5, {
       stats  <- compute_headline_stats(lc_df(), input$metric)
+      metric_label <- switch(
+        input$metric,
+        "age_adj_rate" = "Age-Adjusted Rate (per 100k)",
+        "rate"         = "Crude Death Rate (per 100k)",
+        "Raw Death Count"
+      )
       result <- generate_summary_safe(
         cause      = input$cause,
         state      = input$state,
         year_range = input$year_range,
         df         = lc_df(),
         stats      = stats,
+        metric     = input$metric,
+        metric_label = metric_label,
         cdi_df     = cdi_df(),
         cdi_label  = input$cdi_question,
         api_key    = Sys.getenv("GEMINI_API_KEY")

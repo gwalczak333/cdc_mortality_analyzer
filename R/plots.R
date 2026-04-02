@@ -41,7 +41,7 @@ plot_trend_line <- function(trend_df, cause, state, metric_label = "Age-Adjusted
 
   p <- trend_df |>
     ggplot(aes(x = year, y = value,
-               text = paste0(year, "\nRate: ", round(value, 1), " per 100k",
+               text = paste0(year, "\n", metric_label, ": ", round(value, 1),
                               "\nChange from baseline: ", pct_change, "%"))) +
     geom_ribbon(aes(ymin = value * 0.95, ymax = value * 1.05),
                 fill = "#457B9D", alpha = 0.1) +
@@ -69,28 +69,40 @@ plot_trend_with_cdi <- function(trend_df,
 
   if (nrow(trend_df) == 0) return(plotly_empty("No trend data available"))
 
+  if (is.null(cdi_df) || nrow(cdi_df) == 0 || !"cdi_value" %in% names(cdi_df)) {
+    return(plot_trend_line(trend_df, cause, state, metric_label = metric_label))
+  }
+
   trend_plot_df <- trend_df |>
-    mutate(series = "Mortality", unit = metric_label)
+    transmute(year, series = "Mortality", value = value, unit = metric_label)
 
   cdi_plot_df <- cdi_df |>
-    mutate(series = "Chronic Indicator", unit = cdi_label) |>
-    rename(value = cdi_value)
+    transmute(year, series = "Chronic Indicator", value = cdi_value, unit = cdi_label)
 
-  plot_df <- bind_rows(trend_plot_df, cdi_plot_df)
+  plot_df <- bind_rows(trend_plot_df, cdi_plot_df) |>
+    group_by(series) |>
+    arrange(year) |>
+    mutate(
+      baseline = first(value),
+      index_value = if_else(is.na(baseline) | baseline == 0, NA_real_, value / baseline * 100)
+    ) |>
+    ungroup()
 
   p <- plot_df |>
-    ggplot(aes(x = year, y = value,
-               text = paste0(year, "\n", series, ": ", round(value, 1), "\n", unit))) +
-    geom_line(color = "#457B9D", linewidth = 1.2) +
-    geom_point(color = "#457B9D", size = 2.2, fill = "white", shape = 21, stroke = 1.2) +
-    facet_wrap(~series, ncol = 1, scales = "free_y") +
+    ggplot(aes(x = year, y = index_value, color = series,
+               text = paste0(
+                 year, "\n", series, ": ", round(value, 1),
+                 "\n", unit, "\nIndex: ", round(index_value, 1)
+               ))) +
+    geom_line(linewidth = 1.2) +
+    geom_point(size = 2.2, fill = "white", shape = 21, stroke = 1.2) +
     scale_x_continuous(breaks = pretty_breaks(n = 8)) +
     scale_y_continuous(labels = comma) +
     labs(
       title    = paste0(str_to_title(cause), " — ", state),
-      subtitle = "Mortality and Chronic Disease Indicator Trends",
+      subtitle = "Indexed comparison (first year = 100)",
       x        = NULL,
-      y        = NULL
+      y        = "Indexed value"
     ) +
     theme_mortality()
 

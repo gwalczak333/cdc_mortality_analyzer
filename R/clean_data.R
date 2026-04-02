@@ -11,7 +11,7 @@ library(scales)
 #' Aggregate death counts and rates by year for trend analysis
 #'
 #' @param df     Tibble from fetch_leading_causes().
-#' @param metric Character. "deaths" or "age_adj_rate".
+#' @param metric Character. "deaths", "rate", or "age_adj_rate".
 #' @return Tibble: year, cause_name, state, value.
 trend_by_year <- function(df, metric = "age_adj_rate") {
   metric_use <- metric
@@ -26,10 +26,12 @@ trend_by_year <- function(df, metric = "age_adj_rate") {
     }
   }
 
+  agg_fun <- if (metric_use %in% c("age_adj_rate", "rate")) mean else sum
+
   df |>
     filter(!is.na(.data[[metric_use]])) |>
     group_by(year, cause_name, state) |>
-    summarise(value = sum(.data[[metric_use]], na.rm = TRUE), .groups = "drop") |>
+    summarise(value = agg_fun(.data[[metric_use]], na.rm = TRUE), .groups = "drop") |>
     arrange(year)
 }
 
@@ -43,7 +45,11 @@ add_pct_change <- function(df) {
     arrange(year) |>
     mutate(
       baseline   = first(value),
-      pct_change = round((value - baseline) / baseline * 100, 1)
+      pct_change = dplyr::if_else(
+        is.na(baseline) | baseline == 0,
+        NA_real_,
+        round((value - baseline) / baseline * 100, 1)
+      )
     ) |>
     ungroup()
 }
@@ -77,14 +83,16 @@ compute_headline_stats <- function(df, metric = "age_adj_rate") {
   latest_rate <- df |>
     filter(!is.na(.data[[metric]])) |>
     slice_max(year, n = 1) |>
-    summarise(r = mean(.data[[metric]], na.rm = TRUE)) |>
+    summarise(r = if (metric == "deaths") sum(.data[[metric]], na.rm = TRUE)
+              else mean(.data[[metric]], na.rm = TRUE)) |>
     pull(r)
 
   # Trend direction: compare first vs last year average rate
   year_rates <- df |>
     filter(!is.na(.data[[metric]])) |>
     group_by(year) |>
-    summarise(r = mean(.data[[metric]], na.rm = TRUE)) |>
+    summarise(r = if (metric == "deaths") sum(.data[[metric]], na.rm = TRUE)
+              else mean(.data[[metric]], na.rm = TRUE)) |>
     arrange(year)
 
   trend_dir <- if (nrow(year_rates) >= 2) {
@@ -112,9 +120,11 @@ compute_headline_stats <- function(df, metric = "age_adj_rate") {
 #' @param cdi_label  Character label for CDI indicator (optional).
 #' @return Character string.
 build_llm_data_summary <- function(cause, state, year_range, df, stats,
+                                   metric = "age_adj_rate",
+                                   metric_label = "Age-Adjusted Rate (per 100k)",
                                    cdi_df = NULL, cdi_label = NULL) {
 
-  trend_df <- trend_by_year(df) |>
+  trend_df <- trend_by_year(df, metric = metric) |>
     add_pct_change() |>
     filter(state == !!state | state == "United States") |>
     arrange(year)
@@ -122,14 +132,18 @@ build_llm_data_summary <- function(cause, state, year_range, df, stats,
   # Year-over-year rate summary (first, middle, last)
   years_sample <- trend_df |>
     slice(c(1, ceiling(n()/2), n())) |>
-    mutate(label = paste0(year, ": ", round(value, 1), " per 100k"))
+    mutate(label = paste0(year, ": ", round(value, 1)))
 
   year_series <- paste(years_sample$label, collapse = " → ")
 
   overall_pct_change <- if (nrow(trend_df) >= 2) {
     first_rate <- first(trend_df$value)
     last_rate  <- last(trend_df$value)
-    round((last_rate - first_rate) / first_rate * 100, 1)
+    if (isTRUE(is.finite(first_rate)) && first_rate != 0) {
+      round((last_rate - first_rate) / first_rate * 100, 1)
+    } else {
+      NA
+    }
   } else NA
 
   cdi_block <- ""
@@ -175,9 +189,9 @@ build_llm_data_summary <- function(cause, state, year_range, df, stats,
     "Years analyzed: {year_range[1]}–{year_range[2]}\n",
     "Total deaths in period: {scales::comma(stats$total_deaths)}\n",
     "Peak mortality year: {stats$peak_year}\n",
-    "Latest age-adjusted rate: {stats$latest_rate} per 100,000\n",
+    "Latest {metric_label}: {stats$latest_rate}\n",
     "Overall trend direction: {stats$trend_dir}\n",
-    "Rate trend (age-adjusted per 100k): {year_series}\n",
+    "Trend series ({metric_label}): {year_series}\n",
     "Overall % change across period: {overall_pct_change}%\n",
     "{cdi_block}"
   )

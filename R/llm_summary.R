@@ -170,12 +170,15 @@ get_llm_summary <- function(data_summary,
 
 # Shiny-safe wrapper
 generate_summary_safe <- function(cause, state, year_range, df, stats,
+                                  metric = "age_adj_rate",
+                                  metric_label = "Age-Adjusted Rate (per 100k)",
                                   cdi_df = NULL, cdi_label = NULL, api_key) {
 
   if (nrow(df) == 0) return("No data available to summarize.")
 
   data_summary <- build_llm_data_summary(
     cause, state, year_range, df, stats,
+    metric = metric, metric_label = metric_label,
     cdi_df = cdi_df, cdi_label = cdi_label
   )
   get_llm_summary(data_summary, cause, state, api_key = api_key)

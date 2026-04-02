@@ -161,12 +161,19 @@ parse_leading_causes <- function(resp) {
       r$age_adjusted_death_rate_1,
       r$age_adjusted_death_rate_per_100000
     )
+    rate_raw <- first_non_null(
+      r$rate,
+      r$death_rate,
+      r$crude_rate,
+      r$crude_death_rate
+    )
     tibble(
       year         = as.integer(r$year %||% NA),
       cause_name   = clean_chr(r$cause_name %||% NA_character_),
       cause_icd10  = clean_chr(r$`113_cause_name` %||% NA_character_),
       state        = clean_chr(r$state %||% NA_character_),
       deaths       = parse_num(r$deaths %||% NA),
+      rate         = parse_num(rate_raw %||% NA),
       age_adj_rate = parse_num(age_rate_raw %||% NA)
     )
   }) |>
