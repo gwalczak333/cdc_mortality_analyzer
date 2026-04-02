@@ -198,11 +198,11 @@ build_llm_data_summary <- function(cause, state, year_range, df, stats) {
 #' @param df Tibble from fetch_drug_overdose().
 #' @return Named list of summary values.
 compute_overdose_stats <- function(df) {
-  if (nrow(df) == 0) return(list(total = 0, peak_date = NA, latest_value = NA, trend_dir = "â€”"))
+  if (nrow(df) == 0) return(list(total = 0, peak_date = NA, latest_value = NA, trend_dir = "—"))
 
   trend_df <- overdose_monthly_trend(df)
 
-  if (nrow(trend_df) == 0) return(list(total = 0, peak_date = NA, latest_value = NA, trend_dir = "â€”"))
+  if (nrow(trend_df) == 0) return(list(total = 0, peak_date = NA, latest_value = NA, trend_dir = "—"))
 
   total <- trend_df |>
     summarise(n = sum(value, na.rm = TRUE)) |>
@@ -220,8 +220,8 @@ compute_overdose_stats <- function(df) {
     first_val <- first(trend_df$value)
     last_val  <- last(trend_df$value)
     diff_val  <- last_val - first_val
-    if (diff_val > 1) "â†‘ Increasing" else if (diff_val < -1) "â†“ Decreasing" else "â†’ Stable"
-  } else "â€”"
+    if (diff_val > 1) "↑ Increasing" else if (diff_val < -1) "↓ Decreasing" else "→ Stable"
+  } else "—"
 
   list(
     total        = total,
@@ -248,18 +248,26 @@ build_overdose_llm_data_summary <- function(state, indicator, year_range, df, st
     slice(c(1, ceiling(n()/2), n())) |>
     mutate(label = paste0(format(date, "%b %Y"), ": ", round(value, 1)))
 
-  series <- paste(months_sample$label, collapse = " â†’ ")
+  series <- if (nrow(months_sample) > 0) {
+    paste(months_sample$label, collapse = " → ")
+  } else {
+    "No monthly values available."
+  }
 
   overall_pct_change <- if (nrow(trend_df) >= 2) {
     first_val <- first(trend_df$value)
     last_val  <- last(trend_df$value)
-    round((last_val - first_val) / first_val * 100, 1)
+    if (isTRUE(is.finite(first_val)) && first_val != 0) {
+      round((last_val - first_val) / first_val * 100, 1)
+    } else {
+      NA
+    }
   } else NA
 
   glue::glue(
     "Indicator: {indicator}\n",
     "Geography: {state}\n",
-    "Years analyzed: {year_range[1]}â€“{year_range[2]}\n",
+    "Years analyzed: {year_range[1]}–{year_range[2]}\n",
     "Total overdose deaths (period): {scales::comma(stats$total)}\n",
     "Peak month: {format(stats$peak_date, '%b %Y')}\n",
     "Latest monthly value: {stats$latest_value}\n",
