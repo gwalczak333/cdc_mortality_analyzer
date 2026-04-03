@@ -63,7 +63,7 @@ add_overdose_date()     →  parse month/year → Date column
 | Cause name | `cause_name` |
 | State | `state` |
 | Death count | `deaths` |
-| Age-adjusted rate | `age_adjusted_death_rate` |
+| Crude death rate | `rate` |
 | Overdose indicator | `indicator` |
 | Overdose count | `data_value` |
 
@@ -98,7 +98,7 @@ POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:ge
 4–6 sentence plain-language interpretation displayed in app
 ```
 
-The LLM prompt instructs the model to act as a public health epidemiologist, describe the trend direction, contextualize the rate, propose plausible explanations, and note important caveats (ICD-10 coding, COVID-19, age-adjustment).
+The LLM prompt instructs the model to act as a public health epidemiologist, describe the trend direction, contextualize the rate, propose plausible explanations, and note important caveats (ICD-10 coding, COVID-19, population shifts).
 
 ---
 
@@ -110,7 +110,7 @@ A hosted interactive Shiny app with one main view and 3 tabs:
 
 | Tab | Contents |
 |---|---|
-| Trend Over Time | KPI cards + age-adjusted rate line chart with ribbon |
+| Trend Over Time | KPI cards + crude rate or death count line chart with ribbon |
 | Data Table | Filterable/searchable raw data (DT) |
 | AI Interpretation | Gemini-generated plain-language interpretation |
 
@@ -206,7 +206,7 @@ cdc-mortality-explorer/
 
 ## Key Caveats
 
-- **Age-adjusted rates** are the preferred metric for comparing mortality across states and over time; raw counts are affected by population size.
+- **Crude rates** are influenced by population size and age structure; compare across states with caution.
 - **2020 data** may reflect COVID-19 mortality misattribution and disruptions to routine healthcare.
 - **ICD-10 coding** changes in 1999 can introduce discontinuities for some causes.
 - **Provisional overdose counts** are subject to revision as death certificates are processed (up to 8-month lag).
@@ -216,4 +216,5 @@ cdc-mortality-explorer/
 ## License
 
 Course project — GLHLTH 562, Duke University.
+
 

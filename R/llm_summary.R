@@ -26,7 +26,7 @@ build_prompt <- function(data_summary, cause, state) {
     "3. Suggest 1-2 plausible public health explanations for the trend (e.g., aging population, ",
     "   prevention programs, opioid epidemic, smoking decline).\n",
     "4. Note any important caveats about interpreting this data ",
-    "   (e.g., ICD-10 coding changes, COVID-19 disruption to 2020 data, age-adjustment).\n",
+    "   (e.g., ICD-10 coding changes, COVID-19 disruption to 2020 data, population shifts).\n",
     "Keep the tone informative but accessible - not overly clinical."
   )
 
@@ -165,21 +165,27 @@ get_llm_summary <- function(data_summary,
     return("Unexpected response format from AI service.")
   }
 
-  as.character(text_out)
+  text_out <- as.character(text_out)
+  if (length(text_out) > 1) {
+    text_out <- paste(text_out, collapse = " ")
+  }
+  # Defensive cleanup: strip any trailing model metadata accidentally appended.
+  text_out <- gsub("(?is)\\bmodel\\s+stop\\b.*$", "", text_out, perl = TRUE)
+  text_out <- gsub("(?is)\\bgemini-[^\\n]*$", "", text_out, perl = TRUE)
+  trimws(text_out)
 }
 
 # Shiny-safe wrapper
 generate_summary_safe <- function(cause, state, year_range, df, stats,
-                                  metric = "age_adj_rate",
-                                  metric_label = "Age-Adjusted Rate (per 100k)",
-                                  cdi_df = NULL, cdi_label = NULL, api_key) {
+                                  metric = "rate",
+                                  metric_label = "Crude Death Rate (per 100k)",
+                                  api_key) {
 
   if (nrow(df) == 0) return("No data available to summarize.")
 
   data_summary <- build_llm_data_summary(
     cause, state, year_range, df, stats,
-    metric = metric, metric_label = metric_label,
-    cdi_df = cdi_df, cdi_label = cdi_label
+    metric = metric, metric_label = metric_label
   )
   get_llm_summary(data_summary, cause, state, api_key = api_key)
 }

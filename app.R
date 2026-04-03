@@ -32,10 +32,6 @@ if (file.exists(".env")) dotenv::load_dot_env(".env")
 # ── Static choices ─────────────────────────────────────────────────────────────
 ALL_CAUSES <- get_available_causes()
 ALL_STATES <- get_available_states()
-ALL_CDI_QUESTIONS <- get_cdi_questions_live()
-if (length(ALL_CDI_QUESTIONS) == 0) {
-  ALL_CDI_QUESTIONS <- c("All indicators")
-}
 
 # ── UI ─────────────────────────────────────────────────────────────────────────
 ui <- page_navbar(
@@ -87,17 +83,9 @@ ui <- page_navbar(
         selectInput(
           "metric",
           label    = "Mortality Metric",
-          choices  = c("Age-Adjusted Rate (per 100k)" = "age_adj_rate",
-                        "Crude Death Rate (per 100k)"  = "rate",
+          choices  = c("Crude Death Rate (per 100k)"  = "rate",
                         "Raw Death Count"              = "deaths"),
-          selected = "age_adj_rate"
-        ),
-
-        selectInput(
-          "cdi_question",
-          label    = "Chronic Indicator",
-          choices  = ALL_CDI_QUESTIONS,
-          selected = ALL_CDI_QUESTIONS[1]
+          selected = "rate"
         ),
 
         hr(class = "my-2"),
@@ -114,9 +102,9 @@ ui <- page_navbar(
         hr(class = "my-2"),
         p("Source: ",
           a("data.cdc.gov", href = "https://data.cdc.gov", target = "_blank"),
-          " (NCHS Leading Causes + U.S. Chronic Disease Indicators)",
+          " (NCHS Leading Causes of Death)",
           class = "text-muted small mb-0"),
-        p("Age-adjusted rates per 100,000 U.S. standard population.",
+        p("Rates shown per 100,000 population.",
           class = "text-muted small")
       ),
 
@@ -163,68 +151,37 @@ server <- function(input, output, session) {
         year_max = input$year_range[2]
       )
 
-      setProgress(0.6)
-
-      cdi_raw <- fetch_chronic_indicators(
-        state    = if (input$state == "All") NULL else input$state,
-        question = if (input$cdi_question == "All indicators") NULL else input$cdi_question,
-        year_min = input$year_range[1],
-        year_max = input$year_range[2]
-      )
-
-      if ("Overall" %in% cdi_raw$stratification1) {
-        cdi_raw <- cdi_raw |>
-          dplyr::filter(stratification1 == "Overall")
-      } else if ("Overall" %in% cdi_raw$stratificationcategory1) {
-        cdi_raw <- cdi_raw |>
-          dplyr::filter(stratificationcategory1 == "Overall")
-      }
-
-      cdi_year <- summarize_cdi_by_year(cdi_raw)
-
-      merged <- leading |>
-        left_join(cdi_year, by = c("year", "state"))
-
       setProgress(1)
-      list(leading = leading, cdi = cdi_year, merged = merged)
+      list(leading = leading)
     })
   })
 
   lc_df <- reactive({ req(cdc_result()); cdc_result()$leading })
-  cdi_df <- reactive({ req(cdc_result()); cdc_result()$cdi })
-  merged_df <- reactive({ req(cdc_result()); cdc_result()$merged })
 
   # Keep metric choices in sync with available columns
   observeEvent(cdc_result(), {
-    has_age_rate <- "age_adj_rate" %in% names(lc_df()) && any(!is.na(lc_df()$age_adj_rate))
     has_rate <- "rate" %in% names(lc_df()) && any(!is.na(lc_df()$rate))
-    metric_choices <- if (has_age_rate) {
-      c("Age-Adjusted Rate (per 100k)" = "age_adj_rate",
-        "Crude Death Rate (per 100k)"  = "rate",
-        "Raw Death Count"              = "deaths")
-    } else if (has_rate) {
+    metric_choices <- if (has_rate) {
       c("Crude Death Rate (per 100k)"  = "rate",
         "Raw Death Count"              = "deaths")
     } else {
       c("Raw Death Count" = "deaths")
     }
     updateSelectInput(session, "metric", choices = metric_choices,
-                      selected = if (has_age_rate) "age_adj_rate" else if (has_rate) "rate" else "deaths")
+                      selected = if (has_rate) "rate" else "deaths")
   }, ignoreInit = TRUE)
 
   # ── Fetch status UI ──────────────────────────────────────────────────────────
   output$fetch_status_ui <- renderUI({
-    req(lc_df(), merged_df())
+    req(lc_df())
     n_leading <- nrow(lc_df())
-    n_merged <- nrow(merged_df())
     if (n_leading == 0) {
       div(class = "alert alert-warning p-2 small",
           "No records returned. Try adjusting your filters.")
     } else {
       div(class = "alert alert-success p-2 small",
           bs_icon("check-circle"), " ",
-          comma(n_leading), " mortality records and ",
-          comma(n_merged), " merged records loaded.")
+          comma(n_leading), " mortality records loaded.")
     }
   })
 
@@ -235,7 +192,6 @@ server <- function(input, output, session) {
 
     latest_label <- switch(
       input$metric,
-      "age_adj_rate" = "Latest Age-Adjusted Rate (per 100k)",
       "rate"         = "Latest Crude Rate (per 100k)",
       "Latest Death Count"
     )
@@ -263,7 +219,13 @@ server <- function(input, output, session) {
         title    = "Trend",
         value    = stats$trend_dir,
         showcase = bs_icon("arrow-up-right"),
-        theme    = if (grepl("↑", stats$trend_dir)) "danger" else "success"
+        theme    = if (stats$trend_dir == "Up") {
+          "danger"
+        } else if (stats$trend_dir == "Down") {
+          "success"
+        } else {
+          "secondary"
+        }
       ))
     )
   })
@@ -278,24 +240,17 @@ server <- function(input, output, session) {
 
     metric_label <- switch(
       input$metric,
-      "age_adj_rate" = "Age-Adjusted Rate (per 100k)",
       "rate"         = "Crude Death Rate (per 100k)",
       "Raw Death Count"
     )
 
-    cdi_label <- input$cdi_question
-    plot_trend_with_cdi(trend_df, cdi_df(), input$cause, input$state,
-                        metric_label, cdi_label)
+    plot_trend_line(trend_df, input$cause, input$state, metric_label)
   })
 
   # ── Data table ───────────────────────────────────────────────────────────────
   output$data_table <- renderDT({
-    req(merged_df())
-    table_df <- merged_df()
-    if (!"age_adj_rate" %in% names(table_df) || all(is.na(table_df$age_adj_rate))) {
-      table_df <- dplyr::select(table_df, -dplyr::any_of("age_adj_rate"))
-    }
-    table_df
+    req(lc_df())
+    dplyr::select(lc_df(), -dplyr::any_of("age_adj_rate"))
   },
   options  = list(pageLength = 15, scrollX = TRUE),
   filter   = "top",
@@ -325,7 +280,6 @@ server <- function(input, output, session) {
       stats  <- compute_headline_stats(lc_df(), input$metric)
       metric_label <- switch(
         input$metric,
-        "age_adj_rate" = "Age-Adjusted Rate (per 100k)",
         "rate"         = "Crude Death Rate (per 100k)",
         "Raw Death Count"
       )
@@ -337,8 +291,6 @@ server <- function(input, output, session) {
         stats      = stats,
         metric     = input$metric,
         metric_label = metric_label,
-        cdi_df     = cdi_df(),
-        cdi_label  = input$cdi_question,
         api_key    = Sys.getenv("GEMINI_API_KEY")
       )
       setProgress(1)
@@ -348,10 +300,17 @@ server <- function(input, output, session) {
 
   output$llm_output_ui <- renderUI({
     req(llm_text())
+    cleaned_text <- llm_text()
+    if (length(cleaned_text) > 1) {
+      cleaned_text <- paste(cleaned_text, collapse = " ")
+    }
+    cleaned_text <- gsub("(?is)\\bmodel\\s+stop\\b.*$", "", cleaned_text, perl = TRUE)
+    cleaned_text <- gsub("(?is)\\bgemini-[^\\n]*$", "", cleaned_text, perl = TRUE)
+    cleaned_text <- trimws(cleaned_text)
     div(
       class = "alert alert-light border mt-2",
       style = "line-height: 1.8; font-size: 1.05rem;",
-      p(llm_text())
+      p(cleaned_text)
     )
   })
 }
