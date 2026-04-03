@@ -13,7 +13,7 @@ library(scales)
 #' @param df     Tibble from fetch_leading_causes().
 #' @param metric Character. "deaths" or "rate".
 #' @return Tibble: year, cause_name, state, value.
-trend_by_year <- function(df, metric = "rate") {
+trend_by_year <- function(df, metric = "age_adjusted_rate_100k") {
   metric_use <- metric
   if (!metric_use %in% names(df)) metric_use <- "deaths"
   if (!is.numeric(df[[metric_use]])) {
@@ -26,7 +26,7 @@ trend_by_year <- function(df, metric = "rate") {
     }
   }
 
-  agg_fun <- if (metric_use == "rate") mean else sum
+  agg_fun <- if (metric_use %in% c("rate", "age_adjusted_rate_100k")) mean else sum
 
   df |>
     filter(!is.na(.data[[metric_use]])) |>
@@ -60,7 +60,7 @@ add_pct_change <- function(df) {
 #' @param df         Tibble from fetch_leading_causes().
 #' @param metric     Character.
 #' @return Named list of summary values.
-compute_headline_stats <- function(df, metric = "rate") {
+compute_headline_stats <- function(df, metric = "age_adjusted_rate_100k") {
   if (nrow(df) == 0) return(list(total_deaths = 0, peak_year = NA,
                                   latest_rate = NA, trend_dir = "--"))
   if (!metric %in% names(df)) metric <- "deaths"
@@ -118,8 +118,8 @@ compute_headline_stats <- function(df, metric = "rate") {
 #' @param stats      List from compute_headline_stats().
 #' @return Character string.
 build_llm_data_summary <- function(cause, state, year_range, df, stats,
-                                   metric = "rate",
-                                   metric_label = "Crude Death Rate (per 100k)") {
+                                   metric = "age_adjusted_rate_100k",
+                                   metric_label = "Age-adjusted Death Rate (per 100k)") {
 
   trend_df <- trend_by_year(df, metric = metric) |>
     add_pct_change() |>

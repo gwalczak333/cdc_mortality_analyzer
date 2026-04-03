@@ -60,6 +60,34 @@ plot_trend_line <- function(trend_df, cause, state, metric_label = "Crude Death 
   ggplotly(p, tooltip = "text")
 }
 
+# -- Geographic map -----------------------------------------------------------
+#' US state choropleth for selected metric
+#'
+#' @param geo_df Tibble with state_abbr, state_name, value
+#' @param cause Character
+#' @param metric_label Character
+#' @param year_label Integer
+#' @return plotly object
+plot_geo_map <- function(geo_df, cause, metric_label, year_label) {
+  if (nrow(geo_df) == 0) return(plotly_empty("No geographic data available"))
+
+  plot_ly(
+    data = geo_df,
+    type = "choropleth",
+    locationmode = "USA-states",
+    locations = ~state_abbr,
+    z = ~value,
+    text = ~paste0(state_name, "<br>",
+                   metric_label, ": ", comma(value)),
+    colors = viridis::viridis(10),
+    colorbar = list(title = metric_label)
+  ) |>
+    layout(
+      title = list(text = paste0(str_to_title(cause), " by State (", year_label, ")")),
+      geo = list(scope = "usa")
+    )
+}
+
 # -- Helper -------------------------------------------------------------------
 plotly_empty <- function(msg = "No data available") {
   plot_ly() |>

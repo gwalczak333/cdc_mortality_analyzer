@@ -83,9 +83,9 @@ ui <- page_navbar(
         selectInput(
           "metric",
           label    = "Mortality Metric",
-          choices  = c("Crude Death Rate (per 100k)"  = "rate",
-                        "Raw Death Count"              = "deaths"),
-          selected = "rate"
+          choices  = c("Age-adjusted Death Rate (per 100k)" = "age_adjusted_rate_100k",
+                        "Raw Death Count"                   = "deaths"),
+          selected = "age_adjusted_rate_100k"
         ),
 
         hr(class = "my-2"),
@@ -127,6 +127,14 @@ ui <- page_navbar(
           DTOutput("data_table")
         ),
 
+        # Tab 5: Geographic View
+        nav_panel(
+          "Geographic View",
+          br(),
+          uiOutput("geo_year_ui"),
+          plotlyOutput("geo_plot", height = "520px")
+        ),
+
         # Tab 5: AI Interpretation
         nav_panel(
           "AI Interpretation",
@@ -158,17 +166,35 @@ server <- function(input, output, session) {
 
   lc_df <- reactive({ req(cdc_result()); cdc_result()$leading })
 
+  # Separate fetch for geographic view (needs all states)
+  geo_result <- eventReactive(input$fetch_btn, {
+    withProgress(message = "Fetching CDC data for geographic view...", value = 0.2, {
+      leading <- fetch_leading_causes(
+        cause    = if (input$cause == "All causes") NULL else input$cause,
+        state    = NULL,
+        year_min = input$year_range[1],
+        year_max = input$year_range[2],
+        limit    = 50000
+      )
+      setProgress(1)
+      list(leading = leading)
+    })
+  })
+
+  geo_df <- reactive({ req(geo_result()); geo_result()$leading })
+
   # Keep metric choices in sync with available columns
   observeEvent(cdc_result(), {
-    has_rate <- "rate" %in% names(lc_df()) && any(!is.na(lc_df()$rate))
-    metric_choices <- if (has_rate) {
-      c("Crude Death Rate (per 100k)"  = "rate",
-        "Raw Death Count"              = "deaths")
+    has_aadr <- "age_adjusted_rate_100k" %in% names(lc_df()) &&
+      any(!is.na(lc_df()$age_adjusted_rate_100k))
+    metric_choices <- if (has_aadr) {
+      c("Age-adjusted Death Rate (per 100k)" = "age_adjusted_rate_100k",
+        "Raw Death Count"                    = "deaths")
     } else {
       c("Raw Death Count" = "deaths")
     }
     updateSelectInput(session, "metric", choices = metric_choices,
-                      selected = if (has_rate) "rate" else "deaths")
+                      selected = if (has_aadr) "age_adjusted_rate_100k" else "deaths")
   }, ignoreInit = TRUE)
 
   # ── Fetch status UI ──────────────────────────────────────────────────────────
@@ -192,7 +218,7 @@ server <- function(input, output, session) {
 
     latest_label <- switch(
       input$metric,
-      "rate"         = "Latest Crude Rate (per 100k)",
+      "age_adjusted_rate_100k" = "Latest Age-adjusted Rate (per 100k)",
       "Latest Death Count"
     )
 
@@ -240,7 +266,7 @@ server <- function(input, output, session) {
 
     metric_label <- switch(
       input$metric,
-      "rate"         = "Crude Death Rate (per 100k)",
+      "age_adjusted_rate_100k" = "Age-adjusted Death Rate (per 100k)",
       "Raw Death Count"
     )
 
@@ -250,7 +276,7 @@ server <- function(input, output, session) {
   # ── Data table ───────────────────────────────────────────────────────────────
   output$data_table <- renderDT({
     req(lc_df())
-    dplyr::select(lc_df(), -dplyr::any_of("age_adj_rate"))
+    dplyr::select(lc_df(), -dplyr::any_of("rate"))
   },
   options  = list(pageLength = 15, scrollX = TRUE),
   filter   = "top",
@@ -280,7 +306,7 @@ server <- function(input, output, session) {
       stats  <- compute_headline_stats(lc_df(), input$metric)
       metric_label <- switch(
         input$metric,
-        "rate"         = "Crude Death Rate (per 100k)",
+        "age_adjusted_rate_100k" = "Age-adjusted Death Rate (per 100k)",
         "Raw Death Count"
       )
       result <- generate_summary_safe(
@@ -300,9 +326,9 @@ server <- function(input, output, session) {
 
   output$llm_output_ui <- renderUI({
     req(llm_text())
-    cleaned_text <- llm_text()
-    if (length(cleaned_text) > 1) {
-      cleaned_text <- paste(cleaned_text, collapse = " ")
+    cleaned_text <- coerce_llm_output(llm_text())
+    if (is.null(cleaned_text) || length(cleaned_text) == 0) {
+      cleaned_text <- "Unexpected response format from AI service."
     }
     cleaned_text <- gsub("(?is)\\bmodel\\s+stop\\b.*$", "", cleaned_text, perl = TRUE)
     cleaned_text <- gsub("(?is)\\bgemini-[^\\n]*$", "", cleaned_text, perl = TRUE)
@@ -311,6 +337,82 @@ server <- function(input, output, session) {
       class = "alert alert-light border mt-2",
       style = "line-height: 1.8; font-size: 1.05rem;",
       p(cleaned_text)
+    )
+  })
+
+  # ── Geographic view ─────────────────────────────────────────────────────────
+  output$geo_plot <- renderPlotly({
+    req(geo_df())
+
+    geo_df <- geo_df() |>
+      filter(state != "United States") |>
+      mutate(
+        state_abbr = dplyr::case_when(
+          nchar(state) == 2 ~ toupper(state),
+          tolower(state) == "district of columbia" ~ "DC",
+          TRUE ~ state.abb[match(tolower(state), tolower(state.name))]
+        ),
+        state_name = dplyr::case_when(
+          tolower(state) == "district of columbia" ~ "District of Columbia",
+          nchar(state) == 2 ~ state.name[match(toupper(state), state.abb)],
+          TRUE ~ state
+        )
+      ) |>
+      filter(!is.na(state_abbr))
+
+    metric_use <- input$metric
+    if (!metric_use %in% names(geo_df)) metric_use <- "deaths"
+    if (!is.numeric(geo_df[[metric_use]])) {
+      geo_df[[metric_use]] <- readr::parse_number(as.character(geo_df[[metric_use]]))
+    }
+
+    year_use <- input$geo_year
+    if (is.null(year_use) || is.na(year_use)) {
+      year_use <- max(geo_df$year, na.rm = TRUE)
+    }
+
+    geo_filtered <- geo_df |>
+      filter(year == year_use)
+
+    if (nrow(geo_filtered) == 0) {
+      return(plotly_empty("No geographic data for selected year."))
+    }
+
+    geo_summarized <- geo_filtered |>
+      group_by(state_abbr, state_name) |>
+      summarise(
+        value = if (metric_use == "deaths") sum(.data[[metric_use]], na.rm = TRUE)
+        else mean(.data[[metric_use]], na.rm = TRUE),
+        .groups = "drop"
+      )
+
+    metric_label <- switch(
+      metric_use,
+      "age_adjusted_rate_100k" = "Age-adjusted Death Rate (per 100k)",
+      "Raw Death Count"
+    )
+
+    plot_geo_map(
+      geo_summarized,
+      cause = input$cause,
+      metric_label = metric_label,
+      year_label = year_use
+    )
+  })
+
+  output$geo_year_ui <- renderUI({
+    req(geo_df())
+    years <- seq(input$year_range[1], input$year_range[2])
+    if (length(years) == 0) return(NULL)
+    selected_year <- input$geo_year
+    if (is.null(selected_year) || !(selected_year %in% years)) {
+      selected_year <- max(years)
+    }
+    selectInput(
+      "geo_year",
+      label = "Map Year (within selected range)",
+      choices = years,
+      selected = selected_year
     )
   })
 }

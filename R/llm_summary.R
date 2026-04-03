@@ -4,6 +4,83 @@
 library(httr2)
 library(glue)
 
+# Extract text from Gemini response variants.
+extract_gemini_text <- function(resp) {
+  if (is.null(resp)) return(NULL)
+
+  if (is.character(resp)) {
+    text_out <- paste(resp, collapse = " ")
+    return(trimws(text_out))
+  }
+
+  if (!is.list(resp)) return(NULL)
+
+  pull_parts_text <- function(parts) {
+    if (is.null(parts)) return(NULL)
+    text_vec <- vapply(parts, function(p) {
+      if (!is.null(p$text)) as.character(p$text) else ""
+    }, character(1))
+    text_out <- paste0(text_vec, collapse = "")
+    if (nchar(trimws(text_out)) == 0) return(NULL)
+    trimws(text_out)
+  }
+
+  # Standard Gemini response: resp$candidates[[1]]$content$parts
+  if (!is.null(resp$candidates) && length(resp$candidates) > 0) {
+    parts <- resp$candidates[[1]]$content$parts %||% NULL
+    text_out <- pull_parts_text(parts)
+    if (!is.null(text_out)) return(text_out)
+  }
+
+  # If a candidates list was returned directly.
+  if (!is.null(resp[[1]]$content$parts)) {
+    text_out <- pull_parts_text(resp[[1]]$content$parts)
+    if (!is.null(text_out)) return(text_out)
+  }
+
+  # If content/parts is at the top level.
+  if (!is.null(resp$content$parts)) {
+    text_out <- pull_parts_text(resp$content$parts)
+    if (!is.null(text_out)) return(text_out)
+  }
+
+  NULL
+}
+
+# Coerce any LLM output into a single clean text string.
+coerce_llm_output <- function(x) {
+  if (is.null(x)) return(NULL)
+
+  if (is.character(x)) {
+    text_out <- paste(x, collapse = " ")
+    return(trimws(text_out))
+  }
+
+  if (!is.list(x)) return(NULL)
+
+  text_hits <- character(0)
+  collect_text <- function(node) {
+    if (is.null(node)) return()
+    if (is.character(node)) {
+      if (length(node) > 0) {
+        text_hits <<- c(text_hits, node)
+      }
+      return()
+    }
+    if (is.list(node)) {
+      if (!is.null(node$text) && is.character(node$text)) {
+        text_hits <<- c(text_hits, node$text)
+      }
+      for (child in node) collect_text(child)
+    }
+  }
+  collect_text(x)
+
+  if (length(text_hits) == 0) return(NULL)
+  text_out <- paste(text_hits, collapse = " ")
+  trimws(text_out)
+}
+
 # Build prompt
 build_prompt <- function(data_summary, cause, state) {
 
@@ -152,14 +229,10 @@ get_llm_summary <- function(data_summary,
     return(glue("AI service error (HTTP {resp$status}) for model '{resp$model}': {resp$message}"))
   }
 
-  text_out <- tryCatch({
-    parts <- resp$candidates[[1]]$content$parts
-    if (is.null(parts)) return(NULL)
-    text_vec <- vapply(parts, function(p) {
-      if (!is.null(p$text)) as.character(p$text) else ""
-    }, character(1))
-    paste0(text_vec, collapse = "")
-  }, error = function(e) NULL)
+  text_out <- tryCatch(extract_gemini_text(resp), error = function(e) NULL)
+  if (is.null(text_out) || length(text_out) == 0 || is.na(text_out)) {
+    text_out <- tryCatch(coerce_llm_output(resp), error = function(e) NULL)
+  }
 
   if (is.null(text_out) || length(text_out) == 0 || is.na(text_out)) {
     return("Unexpected response format from AI service.")
@@ -177,8 +250,8 @@ get_llm_summary <- function(data_summary,
 
 # Shiny-safe wrapper
 generate_summary_safe <- function(cause, state, year_range, df, stats,
-                                  metric = "rate",
-                                  metric_label = "Crude Death Rate (per 100k)",
+                                  metric = "age_adjusted_rate_100k",
+                                  metric_label = "Age-adjusted Death Rate (per 100k)",
                                   api_key) {
 
   if (nrow(df) == 0) return("No data available to summarize.")

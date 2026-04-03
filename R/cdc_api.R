@@ -158,13 +158,19 @@ parse_leading_causes <- function(resp) {
       r$crude_rate,
       r$crude_death_rate
     )
+    aadr_raw <- first_non_null(
+      r$aadr,
+      r$age_adjusted_death_rate,
+      r$age_adjusted_rate
+    )
     tibble(
       year         = as.integer(r$year %||% NA),
       cause_name   = clean_chr(r$cause_name %||% NA_character_),
       cause_icd10  = clean_chr(r$`113_cause_name` %||% NA_character_),
       state        = clean_chr(r$state %||% NA_character_),
       deaths       = parse_num(r$deaths %||% NA),
-      rate         = parse_num(rate_raw %||% NA)
+      rate         = parse_num(rate_raw %||% NA),
+      age_adjusted_rate_100k = parse_num(aadr_raw %||% NA)
     )
   }) |>
     filter(!is.na(year), !is.na(deaths))
@@ -211,4 +217,3 @@ get_available_states <- function() {
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 `%||%` <- function(a, b) if (!is.null(a) && length(a) > 0) a else b
-
