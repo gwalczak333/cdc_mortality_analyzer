@@ -74,8 +74,8 @@ ui <- page_navbar(
           "year_range",
           label = "Year Range",
           min   = 1999,
-          max   = 2020,
-          value = c(2005, 2020),
+          max   = 2017,
+          value = c(2005, 2017),
           step  = 1,
           sep   = ""
         ),
@@ -402,7 +402,7 @@ server <- function(input, output, session) {
 
   output$geo_year_ui <- renderUI({
     req(geo_df())
-    years <- seq(input$year_range[1], input$year_range[2])
+    years <- sort(unique(geo_df()$year))
     if (length(years) == 0) return(NULL)
     selected_year <- input$geo_year
     if (is.null(selected_year) || !(selected_year %in% years)) {

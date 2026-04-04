@@ -103,7 +103,7 @@ build_prompt <- function(data_summary, cause, state) {
     "3. Suggest 1-2 plausible public health explanations for the trend (e.g., aging population, ",
     "   prevention programs, opioid epidemic, smoking decline).\n",
     "4. Note any important caveats about interpreting this data ",
-    "   (e.g., ICD-10 coding changes, COVID-19 disruption to 2020 data, population shifts).\n",
+    "   (e.g., ICD-10 coding changes, reporting lags, population shifts).\n",
     "Keep the tone informative but accessible - not overly clinical."
   )
 

@@ -14,7 +14,7 @@ All data is fetched live at runtime from two CDC open data APIs hosted on **data
 
 | Dataset | Endpoint | Coverage |
 |---|---|---|
-| NCHS Leading Causes of Death: United States | `data.cdc.gov/resource/bi63-dtpu.json` | 1999–2020, all states |
+| NCHS Leading Causes of Death: United States | `data.cdc.gov/resource/bi63-dtpu.json` | 1999–2017, all states |
 | VSRR Provisional Drug Overdose Death Counts | `data.cdc.gov/resource/xkb8-kh2a.json` | 2015–present, monthly |
 
 No static CSV files are downloaded. Every search triggers a live API call using SoQL (Socrata Query Language) to filter by cause, state, and year range server-side before returning results.
@@ -207,7 +207,7 @@ cdc-mortality-explorer/
 ## Key Caveats
 
 - **Crude rates** are influenced by population size and age structure; compare across states with caution.
-- **2020 data** may reflect COVID-19 mortality misattribution and disruptions to routine healthcare.
+- **Data availability** for the leading causes dataset ends in 2017 in the public CDC endpoint used here.
 - **ICD-10 coding** changes in 1999 can introduce discontinuities for some causes.
 - **Provisional overdose counts** are subject to revision as death certificates are processed (up to 8-month lag).
 

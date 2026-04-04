@@ -21,7 +21,7 @@ library(readr)
 # ── Dataset endpoints (data.cdc.gov Socrata API) ──────────────────────────────
 CDC_ENDPOINTS <- list(
 
-  # NCHS Leading Causes of Death: United States (1999–2020)
+  # NCHS Leading Causes of Death: United States (1999–2017)
   leading_causes = "https://data.cdc.gov/resource/bi63-dtpu.json",
 
   # NCHS Death Rates and Life Expectancy at Birth
@@ -44,7 +44,7 @@ CDC_ENDPOINTS <- list(
 fetch_leading_causes <- function(cause     = NULL,
                                   state     = NULL,
                                   year_min  = 2005,
-                                  year_max  = 2020,
+                                  year_max  = 2017,
                                   limit     = 5000) {
   normalize_cause <- function(x) {
     if (is.null(x) || x == "" || x == "All causes") return(NULL)
