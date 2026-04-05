@@ -4,5 +4,4 @@ data/
 .Rproj.user
 .Rhistory
 .RData
-
-/.quarto/
+rsconnect/
