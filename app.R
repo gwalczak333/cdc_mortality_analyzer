@@ -276,7 +276,7 @@ server <- function(input, output, session) {
   # ── Data table ───────────────────────────────────────────────────────────────
   output$data_table <- renderDT({
     req(lc_df())
-    dplyr::select(lc_df(), -dplyr::any_of("rate"))
+    dplyr::select(lc_df(), -dplyr::any_of(c("rate", "cause_icd10")))
   },
   options  = list(pageLength = 15, scrollX = TRUE),
   filter   = "top",

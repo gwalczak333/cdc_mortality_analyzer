@@ -166,7 +166,6 @@ parse_leading_causes <- function(resp) {
     tibble(
       year         = as.integer(r$year %||% NA),
       cause_name   = clean_chr(r$cause_name %||% NA_character_),
-      cause_icd10  = clean_chr(r$`113_cause_name` %||% NA_character_),
       state        = clean_chr(r$state %||% NA_character_),
       deaths       = parse_num(r$deaths %||% NA),
       rate         = parse_num(rate_raw %||% NA),
