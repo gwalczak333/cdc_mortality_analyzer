@@ -160,6 +160,7 @@ Note: Never commit your .env file. Use the shinyapps.io dashboard for environmen
 ```
 cdc-mortality-explorer/
 +-- README.md               <- Pipeline documentation (this file)
++-- presentation.qmd        <- Quarto presentation slides
 +-- app.R                   <- Main Shiny application
 +-- .env.example            <- API key template (copy to .env)
 +-- .gitignore
