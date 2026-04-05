@@ -94,6 +94,7 @@ Trends View:
 |---|---|
 | Trend Over Time | KPI cards + crude rate or death count line chart with ribbon |
 | Data Table | Filterable/searchable raw data (DT) |
+| Geographic View | State-level choropleth map of rates/counts |
 | AI Interpretation | Gemini-generated plain-language interpretation |
 
 ---
@@ -163,10 +164,10 @@ cdc-mortality-explorer/
 +-- .env.example            <- API key template (copy to .env)
 +-- .gitignore
 +-- R/
-¦   +-- cdc_api.R           <- CDC data.cdc.gov API fetch functions
-¦   +-- clean_data.R        <- Wrangling, summary, and LLM prep functions
-¦   +-- llm_summary.R       <- Gemini API integration + prompt builder
-¦   +-- plots.R             <- ggplot2 + plotly visualizations
+?   +-- cdc_api.R           <- CDC data.cdc.gov API fetch functions
+?   +-- clean_data.R        <- Wrangling, summary, and LLM prep functions
+?   +-- llm_summary.R       <- Gemini API integration + prompt builder
+?   +-- plots.R             <- ggplot2 + plotly visualizations
 +-- data/
-¦   +-- cached/             <- Optional: locally cached API responses
+?   +-- cached/             <- Optional: locally cached API responses
 ```
